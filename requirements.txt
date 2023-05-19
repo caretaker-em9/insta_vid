@@ -1,0 +1,2 @@
+pyTelegramBotAPI==3.7.9
+beautifulsoup4==4.12.1
