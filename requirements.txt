@@ -1,6 +1,4 @@
 pyTelegramBotAPI==3.7.9
 beautifulsoup4==4.12.1
-greenlet==1.1.2
-pyee==8.1.
-websockets==10.1
+playwright==1.23.1
 gunicorn
