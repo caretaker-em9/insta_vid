@@ -4,9 +4,35 @@ import time
 import urllib.request
 import random
 import os
+import telebot
+
+bot_token = '6172233153:AAE2yZFTGz_TOiR-c9RQ9yfbQoMIRqbJ5-Y'
+
+bot = telebot.TeleBot(bot_token)
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    global chat_id
+    chat_id=message.chat.id
+    global msg
+    msg=message.text
+    if "https://www.instagram.com" in msg:
+    	bot.send_message(chat_id,"pasring link...")
+      	_url = msg.split("?")
+		_url=_url[0]
+		vid=get_source(_url)
+		_link=get_link(vid)
+		bot.send_message(chat_id,f"source link:\n {_link}")
+		caption=get_caption(vid)
+		print(caption)
+    elif "https://www.instagram.com" not in msg:
+    	bot.send_message(chat_id,"send a valid link")
+    
+    
+
+bot.polling()
 
 
-link="https://www.instagram.com/reel/CrIxTsssemY/"
 def get_source(link):
 	with sync_playwright() as p:
 		browser = p.chromium.launch(headless=True)
@@ -90,9 +116,9 @@ def download_vid(link,file_name):
 	dwn_link=link
 	urllib.request.urlretrieve(dwn_link, file_name)
 
-vid=get_source(link)
-_link=get_link(vid)
-caption=get_caption(vid)
-print(caption)
+#vid=get_source(link)
+#_link=get_link(vid)
+#caption=get_caption(vid)
+#print(caption)
 #download_vid(link,file_name)
 #remove_vid(file_name)
