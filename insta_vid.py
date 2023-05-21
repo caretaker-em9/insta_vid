@@ -18,13 +18,13 @@ def handle_message(message):
     msg=message.text
     if "https://www.instagram.com" in msg:
     	bot.send_message(chat_id,"pasring link...")
-      	_url = msg.split("?")
-		_url=_url[0]
-		vid=get_source(_url)
-		_link=get_link(vid)
-		bot.send_message(chat_id,f"source link:\n {_link}")
-		caption=get_caption(vid)
-		print(caption)
+	_url = msg.split("?")
+	_url=_url[0]
+	vid=get_source(_url)
+	_link=get_link(vid)
+	bot.send_message(chat_id,f"source link:\n {_link}")
+	caption=get_caption(vid)
+	bot.send_message(chat_id,caption)
     elif "https://www.instagram.com" not in msg:
     	bot.send_message(chat_id,"send a valid link")
     
