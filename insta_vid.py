@@ -91,7 +91,7 @@ def download_vid(link,file_name):
 	urllib.request.urlretrieve(dwn_link, file_name)
 
 vid=get_source(link)
-link=get_link(vid)
+_link=get_link(vid)
 caption=get_caption(vid)
 print(caption)
 #download_vid(link,file_name)
