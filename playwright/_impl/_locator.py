@@ -15,7 +15,6 @@
 import json
 import pathlib
 import sys
-from collections import ChainMap
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,20 +24,17 @@ from typing import (
     List,
     Optional,
     Pattern,
-    Tuple,
     TypeVar,
     Union,
 )
 
 from playwright._impl._api_structures import (
-    AriaRole,
     FilePayload,
     FloatRect,
     FrameExpectOptions,
     FrameExpectResult,
     Position,
 )
-from playwright._impl._connection import filter_none
 from playwright._impl._element_handle import ElementHandle
 from playwright._impl._helper import (
     Error,
@@ -46,14 +42,9 @@ from playwright._impl._helper import (
     MouseButton,
     locals_to_params,
     monotonic_time,
-    to_impl,
 )
 from playwright._impl._js_handle import Serializable, parse_value, serialize_argument
-from playwright._impl._str_utils import (
-    escape_for_attribute_selector,
-    escape_for_text_selector,
-    escape_regex_flags,
-)
+from playwright._impl._str_utils import escape_regex_flags, escape_with_quotes
 
 if sys.version_info >= (3, 8):  # pragma: no cover
     from typing import Literal
@@ -73,10 +64,8 @@ class Locator:
         self,
         frame: "Frame",
         selector: str,
-        has_text: Union[str, Pattern[str]] = None,
-        has_not_text: Union[str, Pattern[str]] = None,
+        has_text: Union[str, Pattern] = None,
         has: "Locator" = None,
-        has_not: "Locator" = None,
     ) -> None:
         self._frame = frame
         self._selector = selector
@@ -84,23 +73,18 @@ class Locator:
         self._dispatcher_fiber = frame._connection._dispatcher_fiber
 
         if has_text:
-            self._selector += f" >> internal:has-text={escape_for_text_selector(has_text, exact=False)}"
+            if isinstance(has_text, Pattern):
+                pattern = escape_with_quotes(has_text.pattern, '"')
+                flags = escape_regex_flags(has_text)
+                self._selector += f' >> :scope:text-matches({pattern}, "{flags}")'
+            else:
+                escaped = escape_with_quotes(has_text, '"')
+                self._selector += f" >> :scope:has-text({escaped})"
 
         if has:
             if has._frame != frame:
                 raise Error('Inner "has" locator must belong to the same frame.')
-            self._selector += " >> internal:has=" + json.dumps(
-                has._selector, ensure_ascii=False
-            )
-
-        if has_not_text:
-            self._selector += f" >> internal:has-not-text={escape_for_text_selector(has_not_text, exact=False)}"
-
-        if has_not:
-            locator = has_not
-            if locator._frame != frame:
-                raise Error('Inner "has_not" locator must belong to the same frame.')
-            self._selector += " >> internal:has-not=" + json.dumps(locator._selector)
+            self._selector += " >> has=" + json.dumps(has._selector)
 
     def __repr__(self) -> str:
         return f"<Locator frame={self._frame!r} selector={self._selector!r}>"
@@ -198,7 +182,7 @@ class Locator:
         self, expression: str, arg: Serializable = None, timeout: float = None
     ) -> "JSHandle":
         return await self._with_element(
-            lambda h, _: h.evaluate_handle(expression, arg), timeout
+            lambda h, o: h.evaluate_handle(expression, arg), timeout
         )
 
     async def fill(
@@ -211,98 +195,18 @@ class Locator:
         params = locals_to_params(locals())
         return await self._frame.fill(self._selector, strict=True, **params)
 
-    async def clear(
-        self,
-        timeout: float = None,
-        noWaitAfter: bool = None,
-        force: bool = None,
-    ) -> None:
-        await self.fill("", timeout=timeout, noWaitAfter=noWaitAfter, force=force)
-
     def locator(
         self,
-        selector_or_locator: Union[str, "Locator"],
-        has_text: Union[str, Pattern[str]] = None,
-        has_not_text: Union[str, Pattern[str]] = None,
+        selector: str,
+        has_text: Union[str, Pattern] = None,
         has: "Locator" = None,
-        has_not: "Locator" = None,
     ) -> "Locator":
-        if isinstance(selector_or_locator, str):
-            return Locator(
-                self._frame,
-                f"{self._selector} >> {selector_or_locator}",
-                has_text=has_text,
-                has_not_text=has_not_text,
-                has_not=has_not,
-                has=has,
-            )
-        selector_or_locator = to_impl(selector_or_locator)
-        if selector_or_locator._frame != self._frame:
-            raise Error("Locators must belong to the same frame.")
         return Locator(
             self._frame,
-            f"{self._selector} >> {selector_or_locator._selector}",
+            f"{self._selector} >> {selector}",
             has_text=has_text,
-            has_not_text=has_not_text,
-            has_not=has_not,
             has=has,
         )
-
-    def get_by_alt_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_alt_text_selector(text, exact=exact))
-
-    def get_by_label(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_label_selector(text, exact=exact))
-
-    def get_by_placeholder(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_placeholder_selector(text, exact=exact))
-
-    def get_by_role(
-        self,
-        role: AriaRole,
-        checked: bool = None,
-        disabled: bool = None,
-        expanded: bool = None,
-        includeHidden: bool = None,
-        level: int = None,
-        name: Union[str, Pattern[str]] = None,
-        pressed: bool = None,
-        selected: bool = None,
-        exact: bool = None,
-    ) -> "Locator":
-        return self.locator(
-            get_by_role_selector(
-                role,
-                checked=checked,
-                disabled=disabled,
-                expanded=expanded,
-                includeHidden=includeHidden,
-                level=level,
-                name=name,
-                pressed=pressed,
-                selected=selected,
-                exact=exact,
-            )
-        )
-
-    def get_by_test_id(self, testId: Union[str, Pattern[str]]) -> "Locator":
-        return self.locator(get_by_test_id_selector(test_id_attribute_name(), testId))
-
-    def get_by_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_text_selector(text, exact=exact))
-
-    def get_by_title(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_title_selector(text, exact=exact))
 
     def frame_locator(self, selector: str) -> "FrameLocator":
         return FrameLocator(self._frame, self._selector + " >> " + selector)
@@ -334,49 +238,19 @@ class Locator:
 
     def filter(
         self,
-        has_text: Union[str, Pattern[str]] = None,
-        has_not_text: Union[str, Pattern[str]] = None,
+        has_text: Union[str, Pattern] = None,
         has: "Locator" = None,
-        has_not: "Locator" = None,
     ) -> "Locator":
         return Locator(
             self._frame,
             self._selector,
             has_text=has_text,
-            has_not_text=has_not_text,
             has=has,
-            has_not=has_not,
-        )
-
-    def or_(self, locator: "Locator") -> "Locator":
-        if locator._frame != self._frame:
-            raise Error("Locators must belong to the same frame.")
-        return Locator(
-            self._frame,
-            self._selector + " >> internal:or=" + json.dumps(locator._selector),
         )
 
     async def focus(self, timeout: float = None) -> None:
         params = locals_to_params(locals())
         return await self._frame.focus(self._selector, strict=True, **params)
-
-    async def blur(self, timeout: float = None) -> None:
-        await self._frame._channel.send(
-            "blur",
-            {
-                "selector": self._selector,
-                "strict": True,
-                **locals_to_params(locals()),
-            },
-        )
-
-    async def all(
-        self,
-    ) -> List["Locator"]:
-        result = []
-        for index in range(await self.count()):
-            result.append(self.nth(index))
-        return result
 
     async def count(
         self,
@@ -412,7 +286,6 @@ class Locator:
         modifiers: List[KeyboardModifier] = None,
         position: Position = None,
         timeout: float = None,
-        noWaitAfter: bool = None,
         force: bool = None,
         trial: bool = None,
     ) -> None:
@@ -519,9 +392,7 @@ class Locator:
     ) -> bytes:
         params = locals_to_params(locals())
         return await self._with_element(
-            lambda h, timeout: h.screenshot(
-                **ChainMap({"timeout": timeout}, params),
-            ),
+            lambda h, timeout: h.screenshot(timeout=timeout, **params)
         )
 
     async def scroll_into_view_if_needed(
@@ -553,10 +424,7 @@ class Locator:
     async def select_text(self, force: bool = None, timeout: float = None) -> None:
         params = locals_to_params(locals())
         return await self._with_element(
-            lambda h, timeout: h.select_text(
-                **ChainMap({"timeout": timeout}, params),
-            ),
-            timeout,
+            lambda h, timeout: h.select_text(timeout=timeout, **params), timeout
         )
 
     async def set_input_files(
@@ -690,7 +558,7 @@ class Locator:
             {
                 "selector": self._selector,
                 "expression": expression,
-                **(filter_none(options)),
+                **options,
             },
         )
         if result.get("received"):
@@ -709,94 +577,18 @@ class FrameLocator:
         self._frame_selector = frame_selector
 
     def locator(
-        self,
-        selector_or_locator: Union["Locator", str],
-        has_text: Union[str, Pattern[str]] = None,
-        has_not_text: Union[str, Pattern[str]] = None,
-        has: "Locator" = None,
-        has_not: "Locator" = None,
+        self, selector: str, has_text: Union[str, Pattern] = None, has: "Locator" = None
     ) -> Locator:
-        if isinstance(selector_or_locator, str):
-            return Locator(
-                self._frame,
-                f"{self._frame_selector} >> internal:control=enter-frame >> {selector_or_locator}",
-                has_text=has_text,
-                has_not_text=has_not_text,
-                has=has,
-                has_not=has_not,
-            )
-        selector_or_locator = to_impl(selector_or_locator)
-        if selector_or_locator._frame != self._frame:
-            raise ValueError("Locators must belong to the same frame.")
         return Locator(
             self._frame,
-            f"{self._frame_selector} >> internal:control=enter-frame >> {selector_or_locator._selector}",
+            f"{self._frame_selector} >> control=enter-frame >> {selector}",
             has_text=has_text,
-            has_not_text=has_not_text,
             has=has,
-            has_not=has_not,
         )
-
-    def get_by_alt_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_alt_text_selector(text, exact=exact))
-
-    def get_by_label(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_label_selector(text, exact=exact))
-
-    def get_by_placeholder(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_placeholder_selector(text, exact=exact))
-
-    def get_by_role(
-        self,
-        role: AriaRole,
-        checked: bool = None,
-        disabled: bool = None,
-        expanded: bool = None,
-        includeHidden: bool = None,
-        level: int = None,
-        name: Union[str, Pattern[str]] = None,
-        pressed: bool = None,
-        selected: bool = None,
-        exact: bool = None,
-    ) -> "Locator":
-        return self.locator(
-            get_by_role_selector(
-                role,
-                checked=checked,
-                disabled=disabled,
-                expanded=expanded,
-                includeHidden=includeHidden,
-                level=level,
-                name=name,
-                pressed=pressed,
-                selected=selected,
-                exact=exact,
-            )
-        )
-
-    def get_by_test_id(self, testId: Union[str, Pattern[str]]) -> "Locator":
-        return self.locator(get_by_test_id_selector(test_id_attribute_name(), testId))
-
-    def get_by_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_text_selector(text, exact=exact))
-
-    def get_by_title(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_title_selector(text, exact=exact))
 
     def frame_locator(self, selector: str) -> "FrameLocator":
         return FrameLocator(
-            self._frame,
-            f"{self._frame_selector} >> internal:control=enter-frame >> {selector}",
+            self._frame, f"{self._frame_selector} >> control=enter-frame >> {selector}"
         )
 
     @property
@@ -812,97 +604,3 @@ class FrameLocator:
 
     def __repr__(self) -> str:
         return f"<FrameLocator frame={self._frame!r} selector={self._frame_selector!r}>"
-
-
-_test_id_attribute_name: str = "data-testid"
-
-
-def test_id_attribute_name() -> str:
-    return _test_id_attribute_name
-
-
-def set_test_id_attribute_name(attribute_name: str) -> None:
-    global _test_id_attribute_name
-    _test_id_attribute_name = attribute_name
-
-
-def get_by_test_id_selector(
-    test_id_attribute_name: str, test_id: Union[str, Pattern[str]]
-) -> str:
-    if isinstance(test_id, Pattern):
-        return f"internal:testid=[{test_id_attribute_name}=/{test_id.pattern}/{escape_regex_flags(test_id)}]"
-    return f"internal:testid=[{test_id_attribute_name}={escape_for_attribute_selector(test_id, True)}]"
-
-
-def get_by_attribute_text_selector(
-    attr_name: str, text: Union[str, Pattern[str]], exact: bool = None
-) -> str:
-    if isinstance(text, Pattern):
-        return f"internal:attr=[{attr_name}=/{text.pattern}/{escape_regex_flags(text)}]"
-    return f"internal:attr=[{attr_name}={escape_for_attribute_selector(text, exact=exact)}]"
-
-
-def get_by_label_selector(text: Union[str, Pattern[str]], exact: bool = None) -> str:
-    return "internal:label=" + escape_for_text_selector(text, exact=exact)
-
-
-def get_by_alt_text_selector(text: Union[str, Pattern[str]], exact: bool = None) -> str:
-    return get_by_attribute_text_selector("alt", text, exact=exact)
-
-
-def get_by_title_selector(text: Union[str, Pattern[str]], exact: bool = None) -> str:
-    return get_by_attribute_text_selector("title", text, exact=exact)
-
-
-def get_by_placeholder_selector(
-    text: Union[str, Pattern[str]], exact: bool = None
-) -> str:
-    return get_by_attribute_text_selector("placeholder", text, exact=exact)
-
-
-def get_by_text_selector(text: Union[str, Pattern[str]], exact: bool = None) -> str:
-    return "internal:text=" + escape_for_text_selector(text, exact=exact)
-
-
-def bool_to_js_bool(value: bool) -> str:
-    return "true" if value else "false"
-
-
-def get_by_role_selector(
-    role: AriaRole,
-    checked: bool = None,
-    disabled: bool = None,
-    expanded: bool = None,
-    includeHidden: bool = None,
-    level: int = None,
-    name: Union[str, Pattern[str]] = None,
-    pressed: bool = None,
-    selected: bool = None,
-    exact: bool = None,
-) -> str:
-    props: List[Tuple[str, str]] = []
-    if checked is not None:
-        props.append(("checked", bool_to_js_bool(checked)))
-    if disabled is not None:
-        props.append(("disabled", bool_to_js_bool(disabled)))
-    if selected is not None:
-        props.append(("selected", bool_to_js_bool(selected)))
-    if expanded is not None:
-        props.append(("expanded", bool_to_js_bool(expanded)))
-    if includeHidden is not None:
-        props.append(("include-hidden", bool_to_js_bool(includeHidden)))
-    if level is not None:
-        props.append(("level", str(level)))
-    if name is not None:
-        props.append(
-            (
-                "name",
-                f"/{name.pattern}/{escape_regex_flags(name)}"
-                if isinstance(name, Pattern)
-                else escape_for_attribute_selector(name, exact),
-            )
-        )
-    if pressed is not None:
-        props.append(("pressed", bool_to_js_bool(pressed)))
-    props_str = "".join([f"[{t[0]}={t[1]}]" for t in props])
-    return f"internal:role={role}{props_str}"

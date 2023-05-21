@@ -21,10 +21,10 @@ Object.defineProperty(exports, "Registry", {
     return _registry.Registry;
   }
 });
-Object.defineProperty(exports, "RootDispatcher", {
+Object.defineProperty(exports, "Root", {
   enumerable: true,
   get: function () {
-    return _dispatcher.RootDispatcher;
+    return _dispatcher.Root;
   }
 });
 Object.defineProperty(exports, "createPlaywright", {
@@ -57,27 +57,17 @@ Object.defineProperty(exports, "registryDirectory", {
     return _registry.registryDirectory;
   }
 });
-Object.defineProperty(exports, "serverSideCallMetadata", {
-  enumerable: true,
-  get: function () {
-    return _instrumentation.serverSideCallMetadata;
-  }
-});
-Object.defineProperty(exports, "showTraceViewer", {
-  enumerable: true,
-  get: function () {
-    return _traceViewer.showTraceViewer;
-  }
-});
 Object.defineProperty(exports, "writeDockerVersion", {
   enumerable: true,
   get: function () {
     return _registry.writeDockerVersion;
   }
 });
+
 var _registry = require("./registry");
+
 var _dispatcher = require("./dispatchers/dispatcher");
+
 var _playwrightDispatcher = require("./dispatchers/playwrightDispatcher");
+
 var _playwright = require("./playwright");
-var _traceViewer = require("./trace/viewer/traceViewer");
-var _instrumentation = require("./instrumentation");

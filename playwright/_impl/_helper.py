@@ -53,16 +53,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from playwright._impl._api_structures import HeadersArray
     from playwright._impl._network import Request, Response, Route
 
-URLMatch = Union[str, Pattern[str], Callable[[str], bool]]
-URLMatchRequest = Union[str, Pattern[str], Callable[["Request"], bool]]
-URLMatchResponse = Union[str, Pattern[str], Callable[["Response"], bool]]
+URLMatch = Union[str, Pattern, Callable[[str], bool]]
+URLMatchRequest = Union[str, Pattern, Callable[["Request"], bool]]
+URLMatchResponse = Union[str, Pattern, Callable[["Response"], bool]]
 RouteHandlerCallback = Union[
     Callable[["Route"], Any], Callable[["Route", "Request"], Any]
 ]
 
-ColorScheme = Literal["dark", "light", "no-preference", "null"]
-ForcedColors = Literal["active", "none", "null"]
-ReducedMotion = Literal["no-preference", "null", "reduce"]
+ColorScheme = Literal["dark", "light", "no-preference"]
+ForcedColors = Literal["active", "none"]
+ReducedMotion = Literal["no-preference", "reduce"]
 DocumentLoadState = Literal["commit", "domcontentloaded", "load", "networkidle"]
 KeyboardModifier = Literal["Alt", "Control", "Meta", "Shift"]
 MouseButton = Literal["left", "middle", "right"]
@@ -77,6 +77,13 @@ class ErrorPayload(TypedDict, total=False):
     name: str
     stack: str
     value: Optional[Any]
+
+
+class FallbackOverrideParameters(TypedDict, total=False):
+    url: Optional[str]
+    method: Optional[str]
+    headers: Optional[Dict[str, str]]
+    postData: Optional[Union[str, bytes]]
 
 
 class HarRecordingMetadata(TypedDict, total=False):
@@ -145,7 +152,7 @@ Env = Dict[str, Union[str, float, bool]]
 class URLMatcher:
     def __init__(self, base_url: Union[str, None], match: URLMatch) -> None:
         self._callback: Optional[Callable[[str], bool]] = None
-        self._regex_obj: Optional[Pattern[str]] = None
+        self._regex_obj: Optional[Pattern] = None
         if isinstance(match, str):
             if base_url and not match.startswith("*"):
                 match = urljoin(base_url, match)
@@ -177,8 +184,8 @@ class HarLookupResult(TypedDict, total=False):
 class TimeoutSettings:
     def __init__(self, parent: Optional["TimeoutSettings"]) -> None:
         self._parent = parent
-        self._timeout: Optional[float] = None
-        self._navigation_timeout: Optional[float] = None
+        self._timeout = 30000.0
+        self._navigation_timeout = 30000.0
 
     def set_timeout(self, timeout: float) -> None:
         self._timeout = timeout
@@ -264,7 +271,7 @@ class RouteHandler:
     def matches(self, request_url: str) -> bool:
         return self.matcher.matches(request_url)
 
-    async def handle(self, route: "Route") -> bool:
+    async def handle(self, route: "Route", request: "Request") -> bool:
         handled_future = route._start_handling()
         handler_task = []
 
@@ -272,7 +279,7 @@ class RouteHandler:
             self._handled_count += 1
             result = cast(
                 Callable[["Route", "Request"], Union[Coroutine, Any]], self.handler
-            )(route, route.request)
+            )(route, request)
             if inspect.iscoroutine(result):
                 handler_task.append(asyncio.create_task(result))
 
@@ -290,28 +297,6 @@ class RouteHandler:
     @property
     def will_expire(self) -> bool:
         return self._handled_count + 1 >= self._times
-
-    @staticmethod
-    def prepare_interception_patterns(
-        handlers: List["RouteHandler"],
-    ) -> List[Dict[str, str]]:
-        patterns = []
-        all = False
-        for handler in handlers:
-            if isinstance(handler.matcher.match, str):
-                patterns.append({"glob": handler.matcher.match})
-            elif isinstance(handler.matcher._regex_obj, re.Pattern):
-                patterns.append(
-                    {
-                        "regexSource": handler.matcher._regex_obj.pattern,
-                        "regexFlags": escape_regex_flags(handler.matcher._regex_obj),
-                    }
-                )
-            else:
-                all = True
-        if all:
-            return [{"glob": "**/*"}]
-        return patterns
 
 
 def is_safe_close_error(error: Exception) -> bool:
@@ -377,12 +362,3 @@ def is_file_payload(value: Optional[Any]) -> bool:
         and "mimeType" in value
         and "buffer" in value
     )
-
-
-TEXTUAL_MIME_TYPE = re.compile(
-    r"^(text\/.*?|application\/(json|(x-)?javascript|xml.*?|ecmascript|graphql|x-www-form-urlencoded)|image\/svg(\+xml)?|application\/.*?(\+json|\+xml))(;\s*charset=.*)?$"
-)
-
-
-def is_textual_mime_type(mime_type: str) -> bool:
-    return bool(TEXTUAL_MIME_TYPE.match(mime_type))

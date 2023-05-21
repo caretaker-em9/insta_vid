@@ -4,7 +4,9 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.ConsoleMessage = void 0;
+
 var _instrumentation = require("./instrumentation");
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -20,7 +22,6 @@ var _instrumentation = require("./instrumentation");
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class ConsoleMessage extends _instrumentation.SdkObject {
   constructor(parent, type, text, args, location) {
     super(parent, 'console-message');
@@ -37,18 +38,24 @@ class ConsoleMessage extends _instrumentation.SdkObject {
       columnNumber: 0
     };
   }
+
   type() {
     return this._type;
   }
+
   text() {
     if (this._text === undefined) this._text = this._args.map(arg => arg.preview()).join(' ');
     return this._text;
   }
+
   args() {
     return this._args;
   }
+
   location() {
     return this._location;
   }
+
 }
+
 exports.ConsoleMessage = ConsoleMessage;

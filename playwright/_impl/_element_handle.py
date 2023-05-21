@@ -106,7 +106,6 @@ class ElementHandle(JSHandle):
         modifiers: List[KeyboardModifier] = None,
         position: Position = None,
         timeout: float = None,
-        noWaitAfter: bool = None,
         force: bool = None,
         trial: bool = None,
     ) -> None:
@@ -392,7 +391,7 @@ def convert_select_option_values(
     if value:
         if not isinstance(value, list):
             value = [value]
-        options = (options or []) + list(map(lambda e: dict(valueOrLabel=e), value))
+        options = (options or []) + list(map(lambda e: dict(value=e), value))
     if index:
         if not isinstance(index, list):
             index = [index]

@@ -10,10 +10,15 @@ exports.releaseObject = releaseObject;
 exports.toButtonsMask = toButtonsMask;
 exports.toConsoleMessageLocation = toConsoleMessageLocation;
 exports.toModifiersMask = toModifiersMask;
+
 var _fs = _interopRequireDefault(require("fs"));
+
 var _fileUtils = require("../../utils/fileUtils");
+
 var _stackTrace = require("../../utils/stackTrace");
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
 /**
  * Copyright 2017 Google Inc. All rights reserved.
  * Modifications copyright (c) Microsoft Corporation.
@@ -30,10 +35,10 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 function getExceptionMessage(exceptionDetails) {
   if (exceptionDetails.exception) return exceptionDetails.exception.description || String(exceptionDetails.exception.value);
   let message = exceptionDetails.text;
+
   if (exceptionDetails.stackTrace) {
     for (const callframe of exceptionDetails.stackTrace.callFrames) {
       const location = callframe.url + ':' + callframe.lineNumber + ':' + callframe.columnNumber;
@@ -41,21 +46,27 @@ function getExceptionMessage(exceptionDetails) {
       message += `\n    at ${functionName} (${location})`;
     }
   }
+
   return message;
 }
+
 async function releaseObject(client, objectId) {
   await client.send('Runtime.releaseObject', {
     objectId
   }).catch(error => {});
 }
+
 async function readProtocolStream(client, handle, path) {
   let eof = false;
   let fd;
+
   if (path) {
     await (0, _fileUtils.mkdirIfNeeded)(path);
     fd = await _fs.default.promises.open(path, 'w');
   }
+
   const bufs = [];
+
   while (!eof) {
     const response = await client.send('IO.read', {
       handle
@@ -65,12 +76,14 @@ async function readProtocolStream(client, handle, path) {
     bufs.push(buf);
     if (fd) await fd.write(buf);
   }
+
   if (fd) await fd.close();
   await client.send('IO.close', {
     handle
   });
   return Buffer.concat(bufs);
 }
+
 function toConsoleMessageLocation(stackTrace) {
   return stackTrace && stackTrace.callFrames.length ? {
     url: stackTrace.callFrames[0].url,
@@ -82,18 +95,21 @@ function toConsoleMessageLocation(stackTrace) {
     columnNumber: 0
   };
 }
+
 function exceptionToError(exceptionDetails) {
   const messageWithStack = getExceptionMessage(exceptionDetails);
   const lines = messageWithStack.split('\n');
   const firstStackTraceLine = lines.findIndex(line => line.startsWith('    at'));
   let messageWithName = '';
   let stack = '';
+
   if (firstStackTraceLine === -1) {
     messageWithName = messageWithStack;
   } else {
     messageWithName = lines.slice(0, firstStackTraceLine).join('\n');
     stack = messageWithStack;
   }
+
   const {
     name,
     message
@@ -103,6 +119,7 @@ function exceptionToError(exceptionDetails) {
   err.name = name;
   return err;
 }
+
 function toModifiersMask(modifiers) {
   let mask = 0;
   if (modifiers.has('Alt')) mask |= 1;
@@ -111,6 +128,7 @@ function toModifiersMask(modifiers) {
   if (modifiers.has('Shift')) mask |= 8;
   return mask;
 }
+
 function toButtonsMask(buttons) {
   let mask = 0;
   if (buttons.has('left')) mask |= 1;

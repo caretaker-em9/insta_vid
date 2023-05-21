@@ -24,7 +24,7 @@ from playwright._impl._api_structures import (
     ViewportSize,
 )
 from playwright._impl._api_types import Error
-from playwright._impl._browser import Browser, prepare_browser_context_params
+from playwright._impl._browser import Browser, normalize_context_params
 from playwright._impl._browser_context import BrowserContext
 from playwright._impl._connection import (
     ChannelOwner,
@@ -42,7 +42,7 @@ from playwright._impl._helper import (
     ServiceWorkersPolicy,
     locals_to_params,
 )
-from playwright._impl._json_pipe import JsonPipeTransport
+from playwright._impl._transport import WebSocketTransport
 from playwright._impl._wait_helper import throw_on_timeout
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ class BrowserType(ChannelOwner):
         self, parent: ChannelOwner, type: str, guid: str, initializer: Dict
     ) -> None:
         super().__init__(parent, type, guid, initializer)
-        self._playwright: "Playwright"
+        _playwright: "Playwright"
 
     def __repr__(self) -> str:
         return f"<BrowserType name={self.name} executable_path={self.executable_path}>"
@@ -92,7 +92,7 @@ class BrowserType(ChannelOwner):
         browser = cast(
             Browser, from_channel(await self._channel.send("launch", params))
         )
-        self._did_launch_browser(browser)
+        browser._set_browser_type(self)
         return browser
 
     async def launch_persistent_context(
@@ -142,19 +142,20 @@ class BrowserType(ChannelOwner):
         baseURL: str = None,
         strictSelectors: bool = None,
         serviceWorkers: ServiceWorkersPolicy = None,
-        recordHarUrlFilter: Union[Pattern[str], str] = None,
+        recordHarUrlFilter: Union[Pattern, str] = None,
         recordHarMode: HarMode = None,
         recordHarContent: HarContentPolicy = None,
     ) -> BrowserContext:
-        userDataDir = str(Path(userDataDir)) if userDataDir else ""
+        userDataDir = str(Path(userDataDir))
         params = locals_to_params(locals())
-        await prepare_browser_context_params(params)
+        await normalize_context_params(self._connection._is_sync, params)
         normalize_launch_params(params)
         context = cast(
             BrowserContext,
             from_channel(await self._channel.send("launchPersistentContext", params)),
         )
-        self._did_create_context(context, params, params)
+        context._options = params
+        context._set_browser_type(self)
         return context
 
     async def connect_over_cdp(
@@ -167,14 +168,15 @@ class BrowserType(ChannelOwner):
         params = locals_to_params(locals())
         response = await self._channel.send_return_as_dict("connectOverCDP", params)
         browser = cast(Browser, from_channel(response["browser"]))
-        self._did_launch_browser(browser)
 
         default_context = cast(
             Optional[BrowserContext],
             from_nullable_channel(response.get("defaultContext")),
         )
         if default_context:
-            self._did_create_context(default_context, {}, {})
+            browser._contexts.append(default_context)
+            default_context._browser = browser
+        browser._set_browser_type(self)
         return browser
 
     async def connect(
@@ -186,24 +188,12 @@ class BrowserType(ChannelOwner):
     ) -> Browser:
         if timeout is None:
             timeout = 30000
-        if slow_mo is None:
-            slow_mo = 0
 
         headers = {**(headers if headers else {}), "x-playwright-browser": self.name}
-        local_utils = self._connection.local_utils
-        pipe_channel = (
-            await local_utils._channel.send_return_as_dict(
-                "connect",
-                {
-                    "wsEndpoint": ws_endpoint,
-                    "headers": headers,
-                    "slowMo": slow_mo,
-                    "timeout": timeout,
-                },
-            )
-        )["pipe"]
-        transport = JsonPipeTransport(self._connection._loop, pipe_channel)
 
+        transport = WebSocketTransport(
+            self._connection._loop, ws_endpoint, headers, slow_mo
+        )
         connection = Connection(
             self._connection._dispatcher_fiber,
             self._connection._object_factory,
@@ -231,7 +221,6 @@ class BrowserType(ChannelOwner):
         pre_launched_browser = playwright._initializer.get("preLaunchedBrowser")
         assert pre_launched_browser
         browser = cast(Browser, from_channel(pre_launched_browser))
-        self._did_launch_browser(browser)
         browser._should_close_connection_on_close = True
 
         def handle_transport_close() -> None:
@@ -244,15 +233,8 @@ class BrowserType(ChannelOwner):
 
         transport.once("close", handle_transport_close)
 
+        browser._set_browser_type(self)
         return browser
-
-    def _did_create_context(
-        self, context: BrowserContext, context_options: Dict, browser_options: Dict
-    ) -> None:
-        context._set_options(context_options, browser_options)
-
-    def _did_launch_browser(self, browser: Browser) -> None:
-        browser._browser_type = self
 
 
 def normalize_launch_params(params: Dict) -> None:
@@ -269,5 +251,3 @@ def normalize_launch_params(params: Dict) -> None:
         params["executablePath"] = str(Path(params["executablePath"]))
     if "downloadsPath" in params:
         params["downloadsPath"] = str(Path(params["downloadsPath"]))
-    if "tracesDir" in params:
-        params["tracesDir"] = str(Path(params["tracesDir"]))

@@ -4,9 +4,13 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.JsonPipeDispatcher = void 0;
+
 var _dispatcher = require("./dispatcher");
+
 var _utils = require("../../utils");
+
 var _serializers = require("../../protocol/serializers");
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -22,7 +26,6 @@ var _serializers = require("../../protocol/serializers");
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class JsonPipeDispatcher extends _dispatcher.Dispatcher {
   constructor(scope) {
     super(scope, {
@@ -30,32 +33,43 @@ class JsonPipeDispatcher extends _dispatcher.Dispatcher {
     }, 'JsonPipe', {});
     this._type_JsonPipe = true;
   }
+
   async send(params) {
     this.emit('message', params.message);
   }
+
   async close() {
     this.emit('close');
+
     if (!this._disposed) {
       this._dispatchEvent('closed', {});
+
       this._dispose();
     }
   }
+
   dispatch(message) {
     if (!this._disposed) this._dispatchEvent('message', {
       message
     });
   }
+
   wasClosed(error) {
     if (!this._disposed) {
       const params = error ? {
         error: (0, _serializers.serializeError)(error)
       } : {};
+
       this._dispatchEvent('closed', params);
+
       this._dispose();
     }
   }
+
   dispose() {
     this._dispose();
   }
+
 }
+
 exports.JsonPipeDispatcher = JsonPipeDispatcher;

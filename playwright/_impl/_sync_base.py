@@ -16,19 +16,7 @@ import asyncio
 import inspect
 import traceback
 from types import TracebackType
-from typing import (
-    Any,
-    Callable,
-    Coroutine,
-    Dict,
-    Generator,
-    Generic,
-    List,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-)
+from typing import Any, Awaitable, Callable, Dict, Generic, List, Type, TypeVar, cast
 
 import greenlet
 
@@ -87,13 +75,10 @@ class SyncBase(ImplWrapper):
     def __str__(self) -> str:
         return self._impl_obj.__str__()
 
-    def _sync(
-        self,
-        coro: Union[Coroutine[Any, Any, Any], Generator[Any, Any, Any]],
-    ) -> Any:
+    def _sync(self, coro: Awaitable) -> Any:
         __tracebackhide__ = True
         g_self = greenlet.getcurrent()
-        task: asyncio.tasks.Task[Any] = self._loop.create_task(coro)
+        task = self._loop.create_task(coro)
         setattr(task, "__pw_stack__", inspect.stack())
         setattr(task, "__pw_stack_trace__", traceback.extract_stack())
 

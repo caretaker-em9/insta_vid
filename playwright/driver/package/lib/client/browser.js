@@ -4,11 +4,17 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.Browser = void 0;
+
 var _browserContext = require("./browserContext");
+
 var _channelOwner = require("./channelOwner");
+
 var _events = require("./events");
+
 var _errors = require("../common/errors");
+
 var _cdpSession = require("./cdpSession");
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -24,13 +30,15 @@ var _cdpSession = require("./cdpSession");
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class Browser extends _channelOwner.ChannelOwner {
-  // Used from @playwright/test fixtures.
-
   static from(browser) {
     return browser._object;
   }
+
+  static fromNullable(browser) {
+    return browser ? Browser.from(browser) : null;
+  }
+
   constructor(parent, type, guid, initializer) {
     super(parent, type, guid, initializer);
     this._contexts = new Set();
@@ -38,46 +46,54 @@ class Browser extends _channelOwner.ChannelOwner {
     this._closedPromise = void 0;
     this._shouldCloseConnectionOnClose = false;
     this._browserType = void 0;
-    this._options = {};
     this._name = void 0;
-    this._connectHeaders = void 0;
     this._name = initializer.name;
+
     this._channel.on('close', () => this._didClose());
+
     this._closedPromise = new Promise(f => this.once(_events.Events.Browser.Disconnected, f));
   }
+
+  _setBrowserType(browserType) {
+    this._browserType = browserType;
+
+    for (const context of this._contexts) context._setBrowserType(browserType);
+  }
+
   browserType() {
     return this._browserType;
   }
+
   async newContext(options = {}) {
-    return await this._innerNewContext(options, false);
-  }
-  async _newContextForReuse(options = {}) {
-    for (const context of this._contexts) {
-      await this._wrapApiCall(async () => {
-        await this._browserType._willCloseContext(context);
-      }, true);
-      for (const page of context.pages()) page._onClose();
-      context._onClose();
-    }
-    return await this._innerNewContext(options, true);
-  }
-  async _innerNewContext(options = {}, forReuse) {
-    options = {
-      ...this._browserType._defaultContextOptions,
+    var _this$_browserType$_o, _this$_browserType;
+
+    options = { ...this._browserType._defaultContextOptions,
       ...options
     };
     const contextOptions = await (0, _browserContext.prepareBrowserContextParams)(options);
-    const response = forReuse ? await this._channel.newContextForReuse(contextOptions) : await this._channel.newContext(contextOptions);
-    const context = _browserContext.BrowserContext.from(response.context);
-    await this._browserType._didCreateContext(context, contextOptions, this._options, options.logger || this._logger);
+
+    const context = _browserContext.BrowserContext.from((await this._channel.newContext(contextOptions)).context);
+
+    context._options = contextOptions;
+
+    this._contexts.add(context);
+
+    context._logger = options.logger || this._logger;
+
+    context._setBrowserType(this._browserType);
+
+    await ((_this$_browserType$_o = (_this$_browserType = this._browserType)._onDidCreateContext) === null || _this$_browserType$_o === void 0 ? void 0 : _this$_browserType$_o.call(_this$_browserType, context));
     return context;
   }
+
   contexts() {
     return [...this._contexts];
   }
+
   version() {
     return this._initializer.version;
   }
+
   async newPage(options = {}) {
     const context = await this.newContext(options);
     const page = await context.newPage();
@@ -85,21 +101,25 @@ class Browser extends _channelOwner.ChannelOwner {
     context._ownerPage = page;
     return page;
   }
+
   isConnected() {
     return this._isConnected;
   }
+
   async newBrowserCDPSession() {
     return _cdpSession.CDPSession.from((await this._channel.newBrowserCDPSession()).session);
   }
+
   async startTracing(page, options = {}) {
-    await this._channel.startTracing({
-      ...options,
+    await this._channel.startTracing({ ...options,
       page: page ? page._channel : undefined
     });
   }
+
   async stopTracing() {
-    return (await this._channel.stopTracing()).binary;
+    return Buffer.from((await this._channel.stopTracing()).binary, 'base64');
   }
+
   async close() {
     try {
       if (this._shouldCloseConnectionOnClose) this._connection.close(_errors.kBrowserClosedError);else await this._channel.close();
@@ -109,9 +129,12 @@ class Browser extends _channelOwner.ChannelOwner {
       throw e;
     }
   }
+
   _didClose() {
     this._isConnected = false;
     this.emit(_events.Events.Browser.Disconnected, this);
   }
+
 }
+
 exports.Browser = Browser;

@@ -7,14 +7,16 @@ import os
 
 
 link="https://www.instagram.com/reel/CrIxTsssemY/"
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    context = browser.new_context(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36')
-    page = context.new_page()
-    page.goto(link)
-    page.wait_for_timeout(10000)
-    vid=page.inner_html("*")
-    page.close()
+def get_source(link):
+	with sync_playwright() as p:
+		browser = p.chromium.launch(headless=True)
+		context = browser.new_context(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36')
+		page = context.new_page()
+		page.goto(link)
+		page.wait_for_timeout(10000)
+		vid=page.inner_html("*")
+		page.close()
+		return vid
 
 def get_link(vid):
 	soup = BeautifulSoup(vid, 'html.parser')
@@ -88,6 +90,7 @@ def download_vid(link,file_name):
 	dwn_link=link
 	urllib.request.urlretrieve(dwn_link, file_name)
 
+vid=get_source(link)
 link=get_link(vid)
 caption=get_caption(vid)
 print(caption)

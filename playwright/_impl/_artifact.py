@@ -33,8 +33,7 @@ class Artifact(ChannelOwner):
             raise Error(
                 "Path is not available when using browser_type.connect(). Use save_as() to save a local copy."
             )
-        path = await self._channel.send("pathAfterFinished")
-        return pathlib.Path(path) if path else None
+        return pathlib.Path(await self._channel.send("pathAfterFinished"))
 
     async def save_as(self, path: Union[str, Path]) -> None:
         stream = cast(Stream, from_channel(await self._channel.send("saveAsStream")))

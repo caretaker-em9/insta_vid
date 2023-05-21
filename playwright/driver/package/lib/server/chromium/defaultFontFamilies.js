@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.platformToFontFamilies = void 0;
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -19,7 +20,6 @@ exports.platformToFontFamilies = void 0;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 // DO NOT EDIT: this map is generated from Chromium source code by utils/generate_chromium_default_font_families.js
 const platformToFontFamilies = {
   'linux': {

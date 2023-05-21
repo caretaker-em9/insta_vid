@@ -14,26 +14,14 @@
 
 import asyncio
 import contextvars
-import datetime
 import inspect
 import sys
 import traceback
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    List,
-    Mapping,
-    Optional,
-    Union,
-    cast,
-)
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, cast
 
 from greenlet import greenlet
-from pyee import EventEmitter
-from pyee.asyncio import AsyncIOEventEmitter
+from pyee import AsyncIOEventEmitter, EventEmitter
 
 import playwright
 from playwright._impl._helper import ParsedMessagePayload, parse_error
@@ -42,12 +30,6 @@ from playwright._impl._transport import Transport
 if TYPE_CHECKING:
     from playwright._impl._local_utils import LocalUtils
     from playwright._impl._playwright import Playwright
-
-
-if sys.version_info >= (3, 8):  # pragma: no cover
-    from typing import TypedDict
-else:  # pragma: no cover
-    from typing_extensions import TypedDict
 
 
 class Channel(AsyncIOEventEmitter):
@@ -68,7 +50,7 @@ class Channel(AsyncIOEventEmitter):
         )
 
     def send_no_reply(self, method: str, params: Dict = None) -> None:
-        self._connection.wrap_api_call_sync(
+        self._connection.wrap_api_call(
             lambda: self._connection._send_message_to_server(
                 self._guid, method, {} if params is None else params
             )
@@ -136,8 +118,6 @@ class ChannelOwner(AsyncIOEventEmitter):
         if self._parent:
             self._parent._objects[guid] = self
 
-        self._event_to_subscription_mapping: Dict[str, str] = {}
-
     def _dispose(self) -> None:
         # Clean up from parent and connection.
         if self._parent:
@@ -148,31 +128,6 @@ class ChannelOwner(AsyncIOEventEmitter):
         for object in list(self._objects.values()):
             object._dispose()
         self._objects.clear()
-
-    def _adopt(self, child: "ChannelOwner") -> None:
-        del cast("ChannelOwner", child._parent)._objects[child._guid]
-        self._objects[child._guid] = child
-        child._parent = self
-
-    def _set_event_to_subscription_mapping(self, mapping: Dict[str, str]) -> None:
-        self._event_to_subscription_mapping = mapping
-
-    def _update_subscription(self, event: str, enabled: bool) -> None:
-        protocol_event = self._event_to_subscription_mapping.get(event)
-        if protocol_event:
-            self._channel.send_no_reply(
-                "updateSubscription", {"event": protocol_event, "enabled": enabled}
-            )
-
-    def _add_event_handler(self, event: str, k: Any, v: Any) -> None:
-        if not self.listeners(event):
-            self._update_subscription(event, True)
-        super()._add_event_handler(event, k, v)
-
-    def remove_listener(self, event: str, f: Any) -> None:
-        super().remove_listener(event, f)
-        if not self.listeners(event):
-            self._update_subscription(event, False)
 
 
 class ProtocolCallback:
@@ -237,11 +192,10 @@ class Connection(EventEmitter):
         self._error: Optional[BaseException] = None
         self.is_remote = False
         self._init_task: Optional[asyncio.Task] = None
-        self._api_zone: contextvars.ContextVar[
-            Optional[ParsedStackTrace]
-        ] = contextvars.ContextVar("ApiZone", default=None)
+        self._api_zone: contextvars.ContextVar[Optional[Dict]] = contextvars.ContextVar(
+            "ApiZone", default=None
+        )
         self._local_utils: Optional["LocalUtils"] = local_utils
-        self._tracing_count = 0
 
     @property
     def local_utils(self) -> "LocalUtils":
@@ -289,12 +243,6 @@ class Connection(EventEmitter):
     ) -> None:
         self._waiting_for_object[guid] = callback
 
-    def set_in_tracing(self, is_tracing: bool) -> None:
-        if is_tracing:
-            self._tracing_count += 1
-        else:
-            self._tracing_count -= 1
-
     def _send_message_to_server(
         self, guid: str, method: str, params: Dict
     ) -> ProtocolCallback:
@@ -307,35 +255,15 @@ class Connection(EventEmitter):
             getattr(task, "__pw_stack_trace__", traceback.extract_stack()),
         )
         self._callbacks[id] = callback
-        stack_trace_information = cast(ParsedStackTrace, self._api_zone.get())
-        frames = stack_trace_information.get("frames", [])
-        location = (
-            {
-                "file": frames[0]["file"],
-                "line": frames[0]["line"],
-                "column": frames[0]["column"],
-            }
-            if len(frames) > 0
-            else None
-        )
         message = {
             "id": id,
             "guid": guid,
             "method": method,
             "params": self._replace_channels_with_guids(params),
-            "metadata": {
-                "wallTime": int(datetime.datetime.now().timestamp() * 1000),
-                "apiName": stack_trace_information["apiName"],
-                "location": location,
-                "internal": not stack_trace_information["apiName"],
-            },
+            "metadata": self._api_zone.get(),
         }
         self._transport.send(message)
         self._callbacks[id] = callback
-
-        if self._tracing_count > 0 and frames and guid != "localUtils":
-            self.local_utils.add_stack_to_tracing_no_reply(id, frames)
-
         return callback
 
     def dispatch(self, msg: ParsedMessagePayload) -> None:
@@ -357,7 +285,7 @@ class Connection(EventEmitter):
             return
 
         guid = msg["guid"]
-        method = msg["method"]
+        method = msg.get("method")
         params = msg.get("params")
         if method == "__create__":
             assert params
@@ -366,24 +294,10 @@ class Connection(EventEmitter):
                 parent, params["type"], params["guid"], params["initializer"]
             )
             return
-
-        object = self._objects.get(guid)
-        if not object:
-            raise Exception(f'Cannot find object to "{method}": {guid}')
-
-        if method == "__adopt__":
-            child_guid = cast(Dict[str, str], params)["guid"]
-            child = self._objects.get(child_guid)
-            if not child:
-                raise Exception(f"Unknown new child: {child_guid}")
-            object._adopt(child)
-            return
-
         if method == "__dispose__":
             self._objects[guid]._dispose()
             return
         object = self._objects[guid]
-        should_replace_guids_with_channels = "jsonPipe@" not in guid
         try:
             if self._is_sync:
                 for listener in object._channel.listeners(method):
@@ -391,19 +305,11 @@ class Connection(EventEmitter):
                     # and switch to them in order, until they block inside and pass control to each
                     # other and then eventually back to dispatcher as listener functions return.
                     g = greenlet(listener)
-                    if should_replace_guids_with_channels:
-                        g.switch(self._replace_guids_with_channels(params))
-                    else:
-                        g.switch(params)
+                    g.switch(self._replace_guids_with_channels(params))
             else:
-                if should_replace_guids_with_channels:
-                    object._channel.emit(
-                        method, self._replace_guids_with_channels(params)
-                    )
-                else:
-                    object._channel.emit(method, params)
+                object._channel.emit(method, self._replace_guids_with_channels(params))
         except BaseException as exc:
-            print("Error occurred in event listener", file=sys.stderr)
+            print("Error occured in event listener", file=sys.stderr)
             traceback.print_exc()
             self._error = exc
 
@@ -449,31 +355,26 @@ class Connection(EventEmitter):
             return result
         return payload
 
-    async def wrap_api_call(
-        self, cb: Callable[[], Any], is_internal: bool = False
-    ) -> Any:
+    def wrap_api_call(self, cb: Callable[[], Any], is_internal: bool = False) -> Any:
         if self._api_zone.get():
-            return await cb()
+            return cb()
         task = asyncio.current_task(self._loop)
         st: List[inspect.FrameInfo] = getattr(task, "__pw_stack__", inspect.stack())
-        self._api_zone.set(_extract_stack_trace_information_from_stack(st, is_internal))
-        try:
-            return await cb()
-        finally:
-            self._api_zone.set(None)
+        metadata = _extract_metadata_from_stack(st, is_internal)
+        if metadata:
+            self._api_zone.set(metadata)
+        result = cb()
 
-    def wrap_api_call_sync(
-        self, cb: Callable[[], Any], is_internal: bool = False
-    ) -> Any:
-        if self._api_zone.get():
-            return cb()
-        task = asyncio.current_task(self._loop)
-        st: List[inspect.FrameInfo] = getattr(task, "__pw_stack__", inspect.stack())
-        self._api_zone.set(_extract_stack_trace_information_from_stack(st, is_internal))
-        try:
-            return cb()
-        finally:
-            self._api_zone.set(None)
+        async def _() -> None:
+            try:
+                return await result
+            finally:
+                self._api_zone.set(None)
+
+        if asyncio.iscoroutine(result):
+            return _()
+        self._api_zone.set(None)
+        return result
 
 
 def from_channel(channel: Channel) -> Any:
@@ -484,25 +385,13 @@ def from_nullable_channel(channel: Optional[Channel]) -> Optional[Any]:
     return channel._object if channel else None
 
 
-class StackFrame(TypedDict):
-    file: str
-    line: int
-    column: int
-    function: Optional[str]
-
-
-class ParsedStackTrace(TypedDict):
-    frames: List[StackFrame]
-    apiName: Optional[str]
-
-
-def _extract_stack_trace_information_from_stack(
+def _extract_metadata_from_stack(
     st: List[inspect.FrameInfo], is_internal: bool
-) -> Optional[ParsedStackTrace]:
+) -> Optional[Dict]:
     playwright_module_path = str(Path(playwright.__file__).parents[0])
     last_internal_api_name = ""
     api_name = ""
-    parsed_frames: List[StackFrame] = []
+    stack: List[Dict] = []
     for frame in st:
         is_playwright_internal = frame.filename.startswith(playwright_module_path)
 
@@ -512,11 +401,10 @@ def _extract_stack_trace_information_from_stack(
         method_name += frame[0].f_code.co_name
 
         if not is_playwright_internal:
-            parsed_frames.append(
+            stack.append(
                 {
                     "file": frame.filename,
                     "line": frame.lineno,
-                    "column": 0,
                     "function": method_name,
                 }
             )
@@ -527,12 +415,10 @@ def _extract_stack_trace_information_from_stack(
             last_internal_api_name = ""
     if not api_name:
         api_name = last_internal_api_name
-
-    return {
-        "frames": parsed_frames,
-        "apiName": "" if is_internal else api_name,
-    }
-
-
-def filter_none(d: Mapping) -> Dict:
-    return {k: v for k, v in d.items() if v is not None}
+    if api_name:
+        return {
+            "apiName": api_name,
+            "stack": stack,
+            "isInternal": is_internal,
+        }
+    return None

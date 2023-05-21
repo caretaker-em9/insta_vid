@@ -33,7 +33,6 @@ from typing import (
 
 from playwright._impl._accessibility import Accessibility
 from playwright._impl._api_structures import (
-    AriaRole,
     FilePayload,
     FloatRect,
     PdfMargins,
@@ -59,7 +58,6 @@ from playwright._impl._helper import (
     ColorScheme,
     DocumentLoadState,
     ForcedColors,
-    HarMode,
     KeyboardModifier,
     MouseButton,
     ReducedMotion,
@@ -103,6 +101,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class Page(ChannelOwner):
+
     Events = SimpleNamespace(
         Close="close",
         Crash="crash",
@@ -133,7 +132,7 @@ class Page(ChannelOwner):
         self, parent: ChannelOwner, type: str, guid: str, initializer: Dict
     ) -> None:
         super().__init__(parent, type, guid, initializer)
-        self._browser_context = cast("BrowserContext", parent)
+        self._browser_context: BrowserContext = parent
         self.accessibility = Accessibility(self._channel)
         self.keyboard = Keyboard(self._channel)
         self.mouse = Mouse(self._channel)
@@ -194,7 +193,9 @@ class Page(ChannelOwner):
         self._channel.on(
             "route",
             lambda params: asyncio.create_task(
-                self._on_route(from_channel(params["route"]))
+                self._on_route(
+                    from_channel(params["route"]), from_channel(params["request"])
+                )
             ),
         )
         self._channel.on("video", lambda params: self._on_video(params))
@@ -221,16 +222,6 @@ class Page(ChannelOwner):
             else None,
         )
 
-        self._set_event_to_subscription_mapping(
-            {
-                Page.Events.Request: "request",
-                Page.Events.Response: "response",
-                Page.Events.RequestFinished: "requestFinished",
-                Page.Events.RequestFailed: "requestFailed",
-                Page.Events.FileChooser: "fileChooser",
-            }
-        )
-
     def __repr__(self) -> str:
         return f"<Page url={self.url!r}>"
 
@@ -244,25 +235,21 @@ class Page(ChannelOwner):
         frame._detached = True
         self.emit(Page.Events.FrameDetached, frame)
 
-    async def _on_route(self, route: Route) -> None:
+    async def _on_route(self, route: Route, request: Request) -> None:
         route_handlers = self._routes.copy()
         for route_handler in route_handlers:
-            if not route_handler.matches(route.request.url):
+            if not route_handler.matches(request.url):
                 continue
             if route_handler.will_expire:
                 self._routes.remove(route_handler)
             try:
-                handled = await route_handler.handle(route)
+                handled = await route_handler.handle(route, request)
             finally:
                 if len(self._routes) == 0:
-                    asyncio.create_task(
-                        self._connection.wrap_api_call(
-                            lambda: self._update_interception_patterns(), True
-                        )
-                    )
+                    asyncio.create_task(self._disable_interception())
             if handled:
                 return
-        await self._browser_context._on_route(route)
+        await self._browser_context._on_route(route, request)
 
     def _on_binding(self, binding_call: "BindingCall") -> None:
         func = self._bindings.get(binding_call._initializer["name"])
@@ -307,6 +294,20 @@ class Page(ChannelOwner):
     def _on_video(self, params: Any) -> None:
         artifact = from_channel(params["artifact"])
         cast(Video, self.video)._artifact_ready(artifact)
+
+    def _add_event_handler(self, event: str, k: Any, v: Any) -> None:
+        if event == Page.Events.FileChooser and len(self.listeners(event)) == 0:
+            self._channel.send_no_reply(
+                "setFileChooserInterceptedNoReply", {"intercepted": True}
+            )
+        super()._add_event_handler(event, k, v)
+
+    def remove_listener(self, event: str, f: Any) -> None:
+        super().remove_listener(event, f)
+        if event == Page.Events.FileChooser and len(self.listeners(event)) == 0:
+            self._channel.send_no_reply(
+                "setFileChooserInterceptedNoReply", {"intercepted": False}
+            )
 
     @property
     def context(self) -> "BrowserContext":
@@ -545,27 +546,12 @@ class Page(ChannelOwner):
 
     async def emulate_media(
         self,
-        media: Literal["null", "print", "screen"] = None,
+        media: Literal["print", "screen"] = None,
         colorScheme: ColorScheme = None,
         reducedMotion: ReducedMotion = None,
         forcedColors: ForcedColors = None,
     ) -> None:
-        params = locals_to_params(locals())
-        if "media" in params:
-            params["media"] = "no-override" if params["media"] == "null" else media
-        if "colorScheme" in params:
-            params["colorScheme"] = (
-                "no-override" if params["colorScheme"] == "null" else colorScheme
-            )
-        if "reducedMotion" in params:
-            params["reducedMotion"] = (
-                "no-override" if params["reducedMotion"] == "null" else reducedMotion
-            )
-        if "forcedColors" in params:
-            params["forcedColors"] = (
-                "no-override" if params["forcedColors"] == "null" else forcedColors
-            )
-        await self._channel.send("emulateMedia", params)
+        await self._channel.send("emulateMedia", locals_to_params(locals()))
 
     async def set_viewport_size(self, viewportSize: ViewportSize) -> None:
         self._viewport_size = viewportSize
@@ -599,7 +585,10 @@ class Page(ChannelOwner):
                 times,
             ),
         )
-        await self._update_interception_patterns()
+        if len(self._routes) == 1:
+            await self._channel.send(
+                "setNetworkInterceptionEnabled", dict(enabled=True)
+            )
 
     async def unroute(
         self, url: URLMatch, handler: Optional[RouteHandlerCallback] = None
@@ -610,25 +599,18 @@ class Page(ChannelOwner):
                 self._routes,
             )
         )
-        await self._update_interception_patterns()
+        if len(self._routes) == 0:
+            await self._disable_interception()
 
     async def route_from_har(
         self,
         har: Union[Path, str],
-        url: Union[Pattern[str], str] = None,
+        url: Union[Pattern, str] = None,
         not_found: RouteFromHarNotFoundPolicy = None,
         update: bool = None,
-        update_content: Literal["attach", "embed"] = None,
-        update_mode: HarMode = None,
     ) -> None:
         if update:
-            await self._browser_context._record_into_har(
-                har=har,
-                page=self,
-                url=url,
-                update_content=update_content,
-                update_mode=update_mode,
-            )
+            await self._browser_context._record_into_har(har=har, page=self, url=url)
             return
         router = await HarRouter.create(
             local_utils=self._connection.local_utils,
@@ -638,11 +620,8 @@ class Page(ChannelOwner):
         )
         await router.add_page_route(self)
 
-    async def _update_interception_patterns(self) -> None:
-        patterns = RouteHandler.prepare_interception_patterns(self._routes)
-        await self._channel.send(
-            "setNetworkInterceptionPatterns", {"patterns": patterns}
-        )
+    async def _disable_interception(self) -> None:
+        await self._channel.send("setNetworkInterceptionEnabled", dict(enabled=False))
 
     async def screenshot(
         self,
@@ -689,7 +668,7 @@ class Page(ChannelOwner):
             if self._owned_context:
                 await self._owned_context.close()
         except Exception as e:
-            if not is_safe_close_error(e) and not runBeforeUnload:
+            if not is_safe_close_error(e):
                 raise e
 
     def is_closed(self) -> bool:
@@ -753,72 +732,10 @@ class Page(ChannelOwner):
     def locator(
         self,
         selector: str,
-        has_text: Union[str, Pattern[str]] = None,
-        has_not_text: Union[str, Pattern[str]] = None,
+        has_text: Union[str, Pattern] = None,
         has: "Locator" = None,
-        has_not: "Locator" = None,
     ) -> "Locator":
-        return self._main_frame.locator(
-            selector,
-            has_text=has_text,
-            has_not_text=has_not_text,
-            has=has,
-            has_not=has_not,
-        )
-
-    def get_by_alt_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self._main_frame.get_by_alt_text(text, exact=exact)
-
-    def get_by_label(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self._main_frame.get_by_label(text, exact=exact)
-
-    def get_by_placeholder(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self._main_frame.get_by_placeholder(text, exact=exact)
-
-    def get_by_role(
-        self,
-        role: AriaRole,
-        checked: bool = None,
-        disabled: bool = None,
-        expanded: bool = None,
-        includeHidden: bool = None,
-        level: int = None,
-        name: Union[str, Pattern[str]] = None,
-        pressed: bool = None,
-        selected: bool = None,
-        exact: bool = None,
-    ) -> "Locator":
-        return self._main_frame.get_by_role(
-            role,
-            checked=checked,
-            disabled=disabled,
-            expanded=expanded,
-            includeHidden=includeHidden,
-            level=level,
-            name=name,
-            pressed=pressed,
-            selected=selected,
-            exact=exact,
-        )
-
-    def get_by_test_id(self, testId: Union[str, Pattern[str]]) -> "Locator":
-        return self._main_frame.get_by_test_id(testId)
-
-    def get_by_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self._main_frame.get_by_text(text, exact=exact)
-
-    def get_by_title(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self._main_frame.get_by_title(text, exact=exact)
+        return self._main_frame.locator(selector, has_text=has_text, has=has)
 
     def frame_locator(self, selector: str) -> "FrameLocator":
         return self.main_frame.frame_locator(selector)
@@ -854,7 +771,6 @@ class Page(ChannelOwner):
         modifiers: List[KeyboardModifier] = None,
         position: Position = None,
         timeout: float = None,
-        noWaitAfter: bool = None,
         force: bool = None,
         strict: bool = None,
         trial: bool = None,
@@ -973,13 +889,7 @@ class Page(ChannelOwner):
         return self.context.request
 
     async def pause(self) -> None:
-        await asyncio.wait(
-            [
-                asyncio.create_task(self._browser_context._pause()),
-                self._closed_or_crashed_future,
-            ],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        await self._browser_context._pause()
 
     async def pdf(
         self,
@@ -1276,7 +1186,7 @@ class BindingCall(ChannelOwner):
             )
 
 
-def trim_url(param: Union[URLMatchRequest, URLMatchResponse]) -> Optional[str]:
+def trim_url(param: URLMatchRequest) -> Optional[str]:
     if isinstance(param, re.Pattern):
         return trim_end(param.pattern)
     if isinstance(param, str):

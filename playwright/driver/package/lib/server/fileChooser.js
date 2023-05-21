@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.FileChooser = void 0;
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -19,7 +20,6 @@ exports.FileChooser = void 0;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class FileChooser {
   constructor(page, elementHandle, isMultiple) {
     this._page = void 0;
@@ -29,14 +29,19 @@ class FileChooser {
     this._elementHandle = elementHandle;
     this._isMultiple = isMultiple;
   }
+
   element() {
     return this._elementHandle;
   }
+
   isMultiple() {
     return this._isMultiple;
   }
+
   page() {
     return this._page;
   }
+
 }
+
 exports.FileChooser = FileChooser;

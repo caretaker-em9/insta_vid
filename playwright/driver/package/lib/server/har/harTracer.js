@@ -4,20 +4,33 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.HarTracer = void 0;
+
 var _browserContext = require("../browserContext");
+
 var _fetch = require("../fetch");
+
 var _helper = require("../helper");
+
 var network = _interopRequireWildcard(require("../network"));
+
 var _utils = require("../../utils");
+
 var _eventsHelper = require("../../utils/eventsHelper");
+
 var _utilsBundle = require("../../utilsBundle");
+
 var _manualPromise = require("../../utils/manualPromise");
-var _userAgent = require("../../utils/userAgent");
-var _network2 = require("../../utils/network");
+
+var _userAgent = require("../../common/userAgent");
+
+var _netUtils = require("../../common/netUtils");
+
 var _frames = require("../frames");
-var _mimeType = require("../../utils/mimeType");
+
 function _getRequireWildcardCache(nodeInterop) { if (typeof WeakMap !== "function") return null; var cacheBabelInterop = new WeakMap(); var cacheNodeInterop = new WeakMap(); return (_getRequireWildcardCache = function (nodeInterop) { return nodeInterop ? cacheNodeInterop : cacheBabelInterop; })(nodeInterop); }
+
 function _interopRequireWildcard(obj, nodeInterop) { if (!nodeInterop && obj && obj.__esModule) { return obj; } if (obj === null || typeof obj !== "object" && typeof obj !== "function") { return { default: obj }; } var cache = _getRequireWildcardCache(nodeInterop); if (cache && cache.has(obj)) { return cache.get(obj); } var newObj = {}; var hasPropertyDescriptor = Object.defineProperty && Object.getOwnPropertyDescriptor; for (var key in obj) { if (key !== "default" && Object.prototype.hasOwnProperty.call(obj, key)) { var desc = hasPropertyDescriptor ? Object.getOwnPropertyDescriptor(obj, key) : null; if (desc && (desc.get || desc.set)) { Object.defineProperty(newObj, key, desc); } else { newObj[key] = obj[key]; } } } newObj.default = obj; if (cache) { cache.set(obj, newObj); } return newObj; }
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -33,8 +46,8 @@ function _interopRequireWildcard(obj, nodeInterop) { if (!nodeInterop && obj && 
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 const FALLBACK_HTTP_VERSION = 'HTTP/1.1';
+
 class HarTracer {
   constructor(context, page, delegate, options) {
     this._context = void 0;
@@ -51,6 +64,7 @@ class HarTracer {
     this._page = page;
     this._delegate = delegate;
     this._options = options;
+
     if (options.slimMode) {
       options.omitSecurityDetails = true;
       options.omitCookies = true;
@@ -59,14 +73,17 @@ class HarTracer {
       options.omitSizes = true;
       options.omitPages = true;
     }
+
     this._entrySymbol = Symbol('requestHarEntry');
     this._baseURL = context instanceof _fetch.APIRequestContext ? context._defaultOptions().baseURL : context._options.baseURL;
   }
+
   start() {
     if (this._started) return;
     this._started = true;
     const apiRequest = this._context instanceof _fetch.APIRequestContext ? this._context : this._context.fetchRequest;
     this._eventListeners = [_eventsHelper.eventsHelper.addEventListener(apiRequest, _fetch.APIRequestContext.Events.Request, event => this._onAPIRequest(event)), _eventsHelper.eventsHelper.addEventListener(apiRequest, _fetch.APIRequestContext.Events.RequestFinished, event => this._onAPIRequestFinished(event))];
+
     if (this._context instanceof _browserContext.BrowserContext) {
       this._eventListeners.push(_eventsHelper.eventsHelper.addEventListener(this._context, _browserContext.BrowserContext.Events.Page, page => this._createPageEntryIfNeeded(page)), _eventsHelper.eventsHelper.addEventListener(this._context, _browserContext.BrowserContext.Events.Request, request => this._onRequest(request)), _eventsHelper.eventsHelper.addEventListener(this._context, _browserContext.BrowserContext.Events.RequestFinished, ({
         request,
@@ -74,17 +91,21 @@ class HarTracer {
       }) => this._onRequestFinished(request, response).catch(() => {})), _eventsHelper.eventsHelper.addEventListener(this._context, _browserContext.BrowserContext.Events.RequestFailed, request => this._onRequestFailed(request)), _eventsHelper.eventsHelper.addEventListener(this._context, _browserContext.BrowserContext.Events.Response, response => this._onResponse(response)));
     }
   }
+
   _shouldIncludeEntryWithUrl(urlString) {
-    return !this._options.urlFilter || (0, _network2.urlMatches)(this._baseURL, urlString, this._options.urlFilter);
+    return !this._options.urlFilter || (0, _netUtils.urlMatches)(this._baseURL, urlString, this._options.urlFilter);
   }
+
   _entryForRequest(request) {
     return request[this._entrySymbol];
   }
+
   _createPageEntryIfNeeded(page) {
-    if (!page) return;
     if (this._options.omitPages) return;
     if (this._page && page !== this._page) return;
+
     let pageEntry = this._pageEntries.get(page);
+
     if (!pageEntry) {
       pageEntry = {
         startedDateTime: new Date(),
@@ -99,10 +120,13 @@ class HarTracer {
         if (event === 'load') this._onLoad(page, pageEntry);
         if (event === 'domcontentloaded') this._onDOMContentLoaded(page, pageEntry);
       });
+
       this._pageEntries.set(page, pageEntry);
     }
+
     return pageEntry;
   }
+
   _onDOMContentLoaded(page, pageEntry) {
     const promise = page.mainFrame().evaluateExpression(String(() => {
       return {
@@ -113,8 +137,10 @@ class HarTracer {
       pageEntry.title = result.title;
       if (!this._options.omitTiming) pageEntry.pageTimings.onContentLoad = result.domContentLoaded;
     }).catch(() => {});
+
     this._addBarrier(page, promise);
   }
+
   _onLoad(page, pageEntry) {
     const promise = page.mainFrame().evaluateExpression(String(() => {
       return {
@@ -125,20 +151,26 @@ class HarTracer {
       pageEntry.title = result.title;
       if (!this._options.omitTiming) pageEntry.pageTimings.onLoad = result.loaded;
     }).catch(() => {});
+
     this._addBarrier(page, promise);
   }
-  _addBarrier(target, promise) {
-    if (!target) return null;
+
+  _addBarrier(page, promise) {
     if (!this._options.waitForContentOnStop) return;
-    const race = Promise.race([new Promise(f => target.on('close', () => {
+    const race = Promise.race([new Promise(f => page.on('close', () => {
       this._barrierPromises.delete(race);
+
       f();
     })), promise]);
+
     this._barrierPromises.add(race);
+
     race.then(() => this._barrierPromises.delete(race));
   }
+
   _onAPIRequest(event) {
     var _event$postData;
+
     if (!this._shouldIncludeEntryWithUrl(event.url.toString())) return;
     const harEntry = createHarEntry(event.method, event.url, undefined, this._options);
     if (!this._options.omitCookies) harEntry.request.cookies = event.cookies;
@@ -151,86 +183,74 @@ class HarTracer {
     event[this._entrySymbol] = harEntry;
     if (this._started) this._delegate.onEntryStarted(harEntry);
   }
+
   _onAPIRequestFinished(event) {
     const harEntry = this._entryForRequest(event.requestEvent);
+
     if (!harEntry) return;
     harEntry.response.status = event.statusCode;
     harEntry.response.statusText = event.statusMessage;
     harEntry.response.httpVersion = event.httpVersion;
     harEntry.response.redirectURL = event.headers.location || '';
+
     for (let i = 0; i < event.rawHeaders.length; i += 2) {
       harEntry.response.headers.push({
         name: event.rawHeaders[i],
         value: event.rawHeaders[i + 1]
       });
     }
+
     harEntry.response.cookies = this._options.omitCookies ? [] : event.cookies.map(c => {
-      return {
-        ...c,
+      return { ...c,
         expires: c.expires === -1 ? undefined : new Date(c.expires)
       };
     });
     const content = harEntry.response.content;
     const contentType = event.headers['content-type'];
     if (contentType) content.mimeType = contentType;
+
     this._storeResponseContent(event.body, content, 'other');
+
     if (this._started) this._delegate.onEntryFinished(harEntry);
   }
+
   _onRequest(request) {
-    var _request$frame, _request$frame2;
     if (!this._shouldIncludeEntryWithUrl(request.url())) return;
-    const page = (_request$frame = request.frame()) === null || _request$frame === void 0 ? void 0 : _request$frame._page;
+
+    const page = request.frame()._page;
+
     if (this._page && page !== this._page) return;
     const url = network.parsedURL(request.url());
     if (!url) return;
+
     const pageEntry = this._createPageEntryIfNeeded(page);
-    const harEntry = createHarEntry(request.method(), url, (_request$frame2 = request.frame()) === null || _request$frame2 === void 0 ? void 0 : _request$frame2.guid, this._options);
+
+    const harEntry = createHarEntry(request.method(), url, request.frame().guid, this._options);
     if (pageEntry) harEntry.pageref = pageEntry.id;
-    this._recordRequestHeadersAndCookies(harEntry, request.headers());
     harEntry.request.postData = this._postDataForRequest(request, this._options.content);
     if (!this._options.omitSizes) harEntry.request.bodySize = request.bodySize();
+
     if (request.redirectedFrom()) {
       const fromEntry = this._entryForRequest(request.redirectedFrom());
+
       if (fromEntry) fromEntry.response.redirectURL = request.url();
     }
+
     request[this._entrySymbol] = harEntry;
     (0, _utils.assert)(this._started);
+
     this._delegate.onEntryStarted(harEntry);
   }
-  _recordRequestHeadersAndCookies(harEntry, headers) {
-    if (!this._options.omitCookies) {
-      harEntry.request.cookies = [];
-      for (const header of headers.filter(header => header.name.toLowerCase() === 'cookie')) harEntry.request.cookies.push(...header.value.split(';').map(parseCookie));
-    }
-    harEntry.request.headers = headers;
-  }
-  _recordRequestOverrides(harEntry, request) {
-    if (!request._hasOverrides() || !this._options.recordRequestOverrides) return;
-    harEntry.request.method = request.method();
-    harEntry.request.url = request.url();
-    harEntry.request.postData = this._postDataForRequest(request, this._options.content);
-    this._recordRequestHeadersAndCookies(harEntry, request.headers());
-  }
-  async _onRequestFinished(request, response) {
-    var _request$frame3;
-    if (!response) return;
-    const harEntry = this._entryForRequest(request);
-    if (!harEntry) return;
-    const page = (_request$frame3 = request.frame()) === null || _request$frame3 === void 0 ? void 0 : _request$frame3._page;
 
-    // In WebKit security details and server ip are reported in Network.loadingFinished, so we populate
-    // it here to not hang in case of long chunked responses, see https://github.com/microsoft/playwright/issues/21182.
-    if (!this._options.omitServerIP) {
-      this._addBarrier(page || request.serviceWorker(), response.serverAddr().then(server => {
-        if (server !== null && server !== void 0 && server.ipAddress) harEntry.serverIPAddress = server.ipAddress;
-        if (server !== null && server !== void 0 && server.port) harEntry._serverPort = server.port;
-      }));
-    }
-    if (!this._options.omitSecurityDetails) {
-      this._addBarrier(page || request.serviceWorker(), response.securityDetails().then(details => {
-        if (details) harEntry._securityDetails = details;
-      }));
-    }
+  async _onRequestFinished(request, response) {
+    if (!response) return;
+
+    const harEntry = this._entryForRequest(request);
+
+    if (!harEntry) return;
+
+    const page = request.frame()._page;
+
     const httpVersion = response.httpVersion();
     harEntry.request.httpVersion = httpVersion;
     harEntry.response.httpVersion = httpVersion;
@@ -246,60 +266,66 @@ class HarTracer {
       },
       setEncodedBodySize: function (encodedBodySize) {
         this._encodedBodySize = encodedBodySize;
+
         this._check();
       },
       setDecodedBodySize: function (decodedBodySize) {
         this._decodedBodySize = decodedBodySize;
+
         this._check();
       }
     };
-    if (compressionCalculationBarrier) this._addBarrier(page || request.serviceWorker(), compressionCalculationBarrier.barrier);
+    if (compressionCalculationBarrier) this._addBarrier(page, compressionCalculationBarrier.barrier);
     const promise = response.body().then(buffer => {
       if (this._options.skipScripts && request.resourceType() === 'script') {
         compressionCalculationBarrier === null || compressionCalculationBarrier === void 0 ? void 0 : compressionCalculationBarrier.setDecodedBodySize(0);
         return;
       }
+
       const content = harEntry.response.content;
       compressionCalculationBarrier === null || compressionCalculationBarrier === void 0 ? void 0 : compressionCalculationBarrier.setDecodedBodySize(buffer.length);
+
       this._storeResponseContent(buffer, content, request.resourceType());
     }).catch(() => {
       compressionCalculationBarrier === null || compressionCalculationBarrier === void 0 ? void 0 : compressionCalculationBarrier.setDecodedBodySize(0);
     }).then(() => {
       if (this._started) this._delegate.onEntryFinished(harEntry);
     });
-    this._addBarrier(page || request.serviceWorker(), promise);
 
-    // Respose end timing is only available after the response event was received.
-    const timing = response.timing();
-    harEntry.timings.receive = response.request()._responseEndTiming !== -1 ? _helper.helper.millisToRoundishMillis(response.request()._responseEndTiming - timing.responseStart) : -1;
-    this._computeHarEntryTotalTime(harEntry);
+    this._addBarrier(page, promise);
+
     if (!this._options.omitSizes) {
-      this._addBarrier(page || request.serviceWorker(), response.sizes().then(sizes => {
+      this._addBarrier(page, response.sizes().then(sizes => {
         harEntry.response.bodySize = sizes.responseBodySize;
-        harEntry.response.headersSize = sizes.responseHeadersSize;
-        harEntry.response._transferSize = sizes.transferSize;
+        harEntry.response.headersSize = sizes.responseHeadersSize; // Fallback for WebKit by calculating it manually
+
+        harEntry.response._transferSize = response.request().responseSize.transferSize || sizes.responseHeadersSize + sizes.responseBodySize;
         harEntry.request.headersSize = sizes.requestHeadersSize;
         compressionCalculationBarrier === null || compressionCalculationBarrier === void 0 ? void 0 : compressionCalculationBarrier.setEncodedBodySize(sizes.responseBodySize);
       }));
     }
   }
+
   async _onRequestFailed(request) {
     const harEntry = this._entryForRequest(request);
+
     if (!harEntry) return;
     if (request._failureText !== null) harEntry.response._failureText = request._failureText;
-    this._recordRequestOverrides(harEntry, request);
     if (this._started) this._delegate.onEntryFinished(harEntry);
   }
+
   _storeResponseContent(buffer, content, resourceType) {
     if (!buffer) {
       content.size = 0;
       return;
     }
+
     if (!this._options.omitSizes) content.size = buffer.length;
+
     if (this._options.content === 'embed') {
       // Sometimes, we can receive a font/media file with textual mime type. Browser
       // still interprets them correctly, but the 'content-type' header is obviously wrong.
-      if ((0, _mimeType.isTextualMimeType)(content.mimeType) && resourceType !== 'font') {
+      if (isTextualMimeType(content.mimeType) && resourceType !== 'font') {
         content.text = buffer.toString();
       } else {
         content.text = buffer.toString('base64');
@@ -311,12 +337,16 @@ class HarTracer {
       if (this._started) this._delegate.onContentBlob(sha1, buffer);
     }
   }
+
   _onResponse(response) {
-    var _response$frame;
     const harEntry = this._entryForRequest(response.request());
+
     if (!harEntry) return;
-    const page = (_response$frame = response.frame()) === null || _response$frame === void 0 ? void 0 : _response$frame._page;
+
+    const page = response.frame()._page;
+
     const pageEntry = this._createPageEntryIfNeeded(page);
+
     const request = response.request();
     harEntry.response = {
       status: response.status(),
@@ -334,6 +364,7 @@ class HarTracer {
       redirectURL: '',
       _transferSize: this._options.omitSizes ? undefined : -1
     };
+
     if (!this._options.omitTiming) {
       const timing = response.timing();
       if (pageEntry && pageEntry.startedDateTime.valueOf() > timing.startTime) pageEntry.startedDateTime = new Date(timing.startTime);
@@ -341,7 +372,7 @@ class HarTracer {
       const connect = timing.connectEnd !== -1 ? _helper.helper.millisToRoundishMillis(timing.connectEnd - timing.connectStart) : -1;
       const ssl = timing.connectEnd !== -1 ? _helper.helper.millisToRoundishMillis(timing.connectEnd - timing.secureConnectionStart) : -1;
       const wait = timing.responseStart !== -1 ? _helper.helper.millisToRoundishMillis(timing.responseStart - timing.requestStart) : -1;
-      const receive = -1;
+      const receive = response.request()._responseEndTiming !== -1 ? _helper.helper.millisToRoundishMillis(response.request()._responseEndTiming - timing.responseStart) : -1;
       harEntry.timings = {
         dns,
         connect,
@@ -350,31 +381,52 @@ class HarTracer {
         wait,
         receive
       };
-      this._computeHarEntryTotalTime(harEntry);
+      harEntry.time = [dns, connect, ssl, wait, receive].reduce((pre, cur) => cur > 0 ? cur + pre : pre, 0);
     }
-    this._recordRequestOverrides(harEntry, request);
-    this._addBarrier(page || request.serviceWorker(), request.rawRequestHeaders().then(headers => {
-      this._recordRequestHeadersAndCookies(harEntry, headers);
+
+    if (!this._options.omitServerIP) {
+      this._addBarrier(page, response.serverAddr().then(server => {
+        if (server !== null && server !== void 0 && server.ipAddress) harEntry.serverIPAddress = server.ipAddress;
+        if (server !== null && server !== void 0 && server.port) harEntry._serverPort = server.port;
+      }));
+    }
+
+    if (!this._options.omitSecurityDetails) {
+      this._addBarrier(page, response.securityDetails().then(details => {
+        if (details) harEntry._securityDetails = details;
+      }));
+    }
+
+    this._addBarrier(page, request.rawRequestHeaders().then(headers => {
+      if (!this._options.omitCookies) {
+        for (const header of headers.filter(header => header.name.toLowerCase() === 'cookie')) harEntry.request.cookies.push(...header.value.split(';').map(parseCookie));
+      }
+
+      harEntry.request.headers = headers;
     }));
-    this._addBarrier(page || request.serviceWorker(), response.rawResponseHeaders().then(headers => {
+
+    this._addBarrier(page, response.rawResponseHeaders().then(headers => {
       if (!this._options.omitCookies) {
         for (const header of headers.filter(header => header.name.toLowerCase() === 'set-cookie')) harEntry.response.cookies.push(parseCookie(header.value));
       }
+
       harEntry.response.headers = headers;
       const contentType = headers.find(header => header.name.toLowerCase() === 'content-type');
       if (contentType) harEntry.response.content.mimeType = contentType.value;
     }));
   }
-  _computeHarEntryTotalTime(harEntry) {
-    harEntry.time = [harEntry.timings.dns, harEntry.timings.connect, harEntry.timings.ssl, harEntry.timings.wait, harEntry.timings.receive].reduce((pre, cur) => (cur || -1) > 0 ? cur + pre : pre, 0);
-  }
+
   async flush() {
     await Promise.all(this._barrierPromises);
   }
+
   stop() {
     this._started = false;
+
     _eventsHelper.eventsHelper.removeEventListeners(this._eventListeners);
+
     this._barrierPromises.clear();
+
     const context = this._context instanceof _browserContext.BrowserContext ? this._context : undefined;
     const log = {
       version: '1.2',
@@ -389,23 +441,29 @@ class HarTracer {
       pages: this._pageEntries.size ? Array.from(this._pageEntries.values()) : undefined,
       entries: []
     };
+
     if (!this._options.omitTiming) {
       for (const pageEntry of log.pages || []) {
         if (typeof pageEntry.pageTimings.onContentLoad === 'number' && pageEntry.pageTimings.onContentLoad >= 0) pageEntry.pageTimings.onContentLoad -= pageEntry.startedDateTime.valueOf();else pageEntry.pageTimings.onContentLoad = -1;
         if (typeof pageEntry.pageTimings.onLoad === 'number' && pageEntry.pageTimings.onLoad >= 0) pageEntry.pageTimings.onLoad -= pageEntry.startedDateTime.valueOf();else pageEntry.pageTimings.onLoad = -1;
       }
     }
+
     this._pageEntries.clear();
+
     return log;
   }
+
   _postDataForRequest(request, content) {
     const postData = request.postDataBuffer();
     if (!postData) return;
     const contentType = request.headerValue('content-type');
     return this._postDataForBuffer(postData, contentType, content);
   }
+
   _postDataForBuffer(postData, contentType, content) {
     var _contentType;
+
     if (!postData) return;
     (_contentType = contentType) !== null && _contentType !== void 0 ? _contentType : contentType = 'application/octet-stream';
     const result = {
@@ -414,22 +472,30 @@ class HarTracer {
       params: []
     };
     if (content === 'embed' && contentType !== 'application/octet-stream') result.text = postData.toString();
+
     if (content === 'attach') {
       const sha1 = (0, _utils.calculateSha1)(postData) + '.' + (_utilsBundle.mime.getExtension(contentType) || 'dat');
       if (this._options.includeTraceInfo) result._sha1 = sha1;else result._file = sha1;
+
       this._delegate.onContentBlob(sha1, postData);
     }
+
     if (contentType === 'application/x-www-form-urlencoded') {
       const parsed = new URLSearchParams(postData.toString());
+
       for (const [name, value] of parsed.entries()) result.params.push({
         name,
         value
       });
     }
+
     return result;
   }
+
 }
+
 exports.HarTracer = HarTracer;
+
 function createHarEntry(method, url, frameref, options) {
   const harEntry = {
     _frameref: options.includeTraceInfo ? frameref : undefined,
@@ -473,22 +539,26 @@ function createHarEntry(method, url, frameref, options) {
   };
   return harEntry;
 }
+
 function parseCookie(c) {
   const cookie = {
     name: '',
     value: ''
   };
   let first = true;
+
   for (const pair of c.split(/; */)) {
     const indexOfEquals = pair.indexOf('=');
     const name = indexOfEquals !== -1 ? pair.substr(0, indexOfEquals).trim() : pair.trim();
     const value = indexOfEquals !== -1 ? pair.substr(indexOfEquals + 1, pair.length).trim() : '';
+
     if (first) {
       first = false;
       cookie.name = name;
       cookie.value = value;
       continue;
     }
+
     if (name === 'Domain') cookie.domain = value;
     if (name === 'Expires') cookie.expires = new Date(value);
     if (name === 'HttpOnly') cookie.httpOnly = true;
@@ -497,5 +567,10 @@ function parseCookie(c) {
     if (name === 'SameSite') cookie.sameSite = value;
     if (name === 'Secure') cookie.secure = true;
   }
+
   return cookie;
+}
+
+function isTextualMimeType(mimeType) {
+  return !!mimeType.match(/^(text\/.*?|application\/(json|(x-)?javascript|xml.*?|ecmascript|graphql|x-www-form-urlencoded)|image\/svg(\+xml)?|application\/.*?(\+json|\+xml))(;\s*charset=.*)?$/);
 }

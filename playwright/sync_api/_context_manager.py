@@ -14,20 +14,17 @@
 
 import asyncio
 import sys
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional
 
 from greenlet import greenlet
 
 from playwright._impl._api_types import Error
-from playwright._impl._connection import ChannelOwner, Connection
+from playwright._impl._connection import Connection
 from playwright._impl._driver import compute_driver_executable
 from playwright._impl._object_factory import create_remote_object
 from playwright._impl._playwright import Playwright
 from playwright._impl._transport import PipeTransport
 from playwright.sync_api._generated import Playwright as SyncPlaywright
-
-if TYPE_CHECKING:
-    from asyncio.unix_events import AbstractChildWatcher
 
 
 class PlaywrightContextManager:
@@ -35,7 +32,7 @@ class PlaywrightContextManager:
         self._playwright: SyncPlaywright
         self._loop: asyncio.AbstractEventLoop
         self._own_loop = False
-        self._watcher: Optional[AbstractChildWatcher] = None
+        self._watcher: Optional[asyncio.AbstractChildWatcher] = None
 
     def __enter__(self) -> SyncPlaywright:
         try:
@@ -80,8 +77,7 @@ Please use the Async API instead."""
 
         g_self = greenlet.getcurrent()
 
-        def callback_wrapper(channel_owner: ChannelOwner) -> None:
-            playwright_impl = cast(Playwright, channel_owner)
+        def callback_wrapper(playwright_impl: Playwright) -> None:
             self._playwright = SyncPlaywright(playwright_impl)
             g_self.switch()
 

@@ -4,7 +4,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.Video = void 0;
-var _utils = require("../utils");
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -20,32 +20,39 @@ var _utils = require("../utils");
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class Video {
   constructor(page, connection) {
     this._artifact = null;
-    this._artifactReadyPromise = new _utils.ManualPromise();
+
+    this._artifactCallback = artifact => {};
+
     this._isRemote = false;
     this._isRemote = connection.isRemote();
-    this._artifact = page._closedOrCrashedRace.safeRace(this._artifactReadyPromise);
+    this._artifact = Promise.race([new Promise(f => this._artifactCallback = f), page._closedOrCrashedPromise.then(() => null)]);
   }
+
   _artifactReady(artifact) {
-    this._artifactReadyPromise.resolve(artifact);
+    this._artifactCallback(artifact);
   }
+
   async path() {
     if (this._isRemote) throw new Error(`Path is not available when connecting remotely. Use saveAs() to save a local copy.`);
     const artifact = await this._artifact;
     if (!artifact) throw new Error('Page did not produce any video frames');
     return artifact._initializer.absolutePath;
   }
+
   async saveAs(path) {
     const artifact = await this._artifact;
     if (!artifact) throw new Error('Page did not produce any video frames');
     return artifact.saveAs(path);
   }
+
   async delete() {
     const artifact = await this._artifact;
     if (artifact) await artifact.delete();
   }
+
 }
+
 exports.Video = Video;

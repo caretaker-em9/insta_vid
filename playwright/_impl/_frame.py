@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Pattern, Set, Union
 
 from pyee import EventEmitter
 
-from playwright._impl._api_structures import AriaRole, FilePayload, Position
+from playwright._impl._api_structures import FilePayload, Position
 from playwright._impl._api_types import Error
 from playwright._impl._connection import (
     ChannelOwner,
@@ -45,18 +45,7 @@ from playwright._impl._js_handle import (
     parse_result,
     serialize_argument,
 )
-from playwright._impl._locator import (
-    FrameLocator,
-    Locator,
-    get_by_alt_text_selector,
-    get_by_label_selector,
-    get_by_placeholder_selector,
-    get_by_role_selector,
-    get_by_test_id_selector,
-    get_by_text_selector,
-    get_by_title_selector,
-    test_id_attribute_name,
-)
+from playwright._impl._locator import FrameLocator, Locator
 from playwright._impl._network import Response
 from playwright._impl._set_input_files_helpers import convert_input_files
 from playwright._impl._wait_helper import WaitHelper
@@ -250,23 +239,19 @@ class Frame(ChannelOwner):
             raise Error(
                 "state: expected one of (load|domcontentloaded|networkidle|commit)"
             )
+        if state in self._load_states:
+            return
         wait_helper = self._setup_navigation_wait_helper("wait_for_load_state", timeout)
 
-        if state in self._load_states:
-            wait_helper.log(f'  not waiting, "{state}" event already fired')
-            # TODO: align with upstream
-            wait_helper._fulfill(None)
-        else:
+        def handle_load_state_event(actual_state: str) -> bool:
+            wait_helper.log(f'"{actual_state}" event fired')
+            return actual_state == state
 
-            def handle_load_state_event(actual_state: str) -> bool:
-                wait_helper.log(f'"{actual_state}" event fired')
-                return actual_state == state
-
-            wait_helper.wait_for_event(
-                self._event_emitter,
-                "loadstate",
-                handle_load_state_event,
-            )
+        wait_helper.wait_for_event(
+            self._event_emitter,
+            "loadstate",
+            handle_load_state_event,
+        )
         await wait_helper.result()
 
     async def frame_element(self) -> ElementHandle:
@@ -528,77 +513,9 @@ class Frame(ChannelOwner):
         await self._channel.send("fill", locals_to_params(locals()))
 
     def locator(
-        self,
-        selector: str,
-        has_text: Union[str, Pattern[str]] = None,
-        has_not_text: Union[str, Pattern[str]] = None,
-        has: Locator = None,
-        has_not: Locator = None,
+        self, selector: str, has_text: Union[str, Pattern] = None, has: Locator = None
     ) -> Locator:
-        return Locator(
-            self,
-            selector,
-            has_text=has_text,
-            has_not_text=has_not_text,
-            has=has,
-            has_not=has_not,
-        )
-
-    def get_by_alt_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_alt_text_selector(text, exact=exact))
-
-    def get_by_label(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_label_selector(text, exact=exact))
-
-    def get_by_placeholder(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_placeholder_selector(text, exact=exact))
-
-    def get_by_role(
-        self,
-        role: AriaRole,
-        checked: bool = None,
-        disabled: bool = None,
-        expanded: bool = None,
-        includeHidden: bool = None,
-        level: int = None,
-        name: Union[str, Pattern[str]] = None,
-        pressed: bool = None,
-        selected: bool = None,
-        exact: bool = None,
-    ) -> "Locator":
-        return self.locator(
-            get_by_role_selector(
-                role,
-                checked=checked,
-                disabled=disabled,
-                expanded=expanded,
-                includeHidden=includeHidden,
-                level=level,
-                name=name,
-                pressed=pressed,
-                selected=selected,
-                exact=exact,
-            )
-        )
-
-    def get_by_test_id(self, testId: Union[str, Pattern[str]]) -> "Locator":
-        return self.locator(get_by_test_id_selector(test_id_attribute_name(), testId))
-
-    def get_by_text(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_text_selector(text, exact=exact))
-
-    def get_by_title(
-        self, text: Union[str, Pattern[str]], exact: bool = None
-    ) -> "Locator":
-        return self.locator(get_by_title_selector(text, exact=exact))
+        return Locator(self, selector, has_text=has_text, has=has)
 
     def frame_locator(self, selector: str) -> FrameLocator:
         return FrameLocator(self, selector)
@@ -634,7 +551,6 @@ class Frame(ChannelOwner):
         modifiers: List[KeyboardModifier] = None,
         position: Position = None,
         timeout: float = None,
-        noWaitAfter: bool = None,
         force: bool = None,
         strict: bool = None,
         trial: bool = None,
@@ -763,12 +679,8 @@ class Frame(ChannelOwner):
         timeout: float = None,
         polling: Union[float, Literal["raf"]] = None,
     ) -> JSHandle:
-        if isinstance(polling, str) and polling != "raf":
-            raise Error(f"Unknown polling option: {polling}")
         params = locals_to_params(locals())
         params["arg"] = serialize_argument(arg)
-        if polling is not None and polling != "raf":
-            params["pollingInterval"] = polling
         return from_channel(await self._channel.send("waitForFunction", params))
 
     async def title(self) -> str:

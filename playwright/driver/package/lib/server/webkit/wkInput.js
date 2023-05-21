@@ -4,11 +4,17 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.RawTouchscreenImpl = exports.RawMouseImpl = exports.RawKeyboardImpl = void 0;
+
 var input = _interopRequireWildcard(require("../input"));
+
 var _macEditingCommands = require("../macEditingCommands");
+
 var _utils = require("../../utils");
+
 function _getRequireWildcardCache(nodeInterop) { if (typeof WeakMap !== "function") return null; var cacheBabelInterop = new WeakMap(); var cacheNodeInterop = new WeakMap(); return (_getRequireWildcardCache = function (nodeInterop) { return nodeInterop ? cacheNodeInterop : cacheBabelInterop; })(nodeInterop); }
+
 function _interopRequireWildcard(obj, nodeInterop) { if (!nodeInterop && obj && obj.__esModule) { return obj; } if (obj === null || typeof obj !== "object" && typeof obj !== "function") { return { default: obj }; } var cache = _getRequireWildcardCache(nodeInterop); if (cache && cache.has(obj)) { return cache.get(obj); } var newObj = {}; var hasPropertyDescriptor = Object.defineProperty && Object.getOwnPropertyDescriptor; for (var key in obj) { if (key !== "default" && Object.prototype.hasOwnProperty.call(obj, key)) { var desc = hasPropertyDescriptor ? Object.getOwnPropertyDescriptor(obj, key) : null; if (desc && (desc.get || desc.set)) { Object.defineProperty(newObj, key, desc); } else { newObj[key] = obj[key]; } } } newObj.default = obj; if (cache) { cache.set(obj, newObj); } return newObj; }
+
 /**
  * Copyright 2017 Google Inc. All rights reserved.
  * Modifications copyright (c) Microsoft Corporation.
@@ -25,7 +31,6 @@ function _interopRequireWildcard(obj, nodeInterop) { if (!nodeInterop && obj && 
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 function toModifiersMask(modifiers) {
   // From Source/WebKit/Shared/WebEvent.h
   let mask = 0;
@@ -35,6 +40,7 @@ function toModifiersMask(modifiers) {
   if (modifiers.has('Meta')) mask |= 8;
   return mask;
 }
+
 function toButtonsMask(buttons) {
   let mask = 0;
   if (buttons.has('left')) mask |= 1;
@@ -42,20 +48,25 @@ function toButtonsMask(buttons) {
   if (buttons.has('middle')) mask |= 4;
   return mask;
 }
+
 class RawKeyboardImpl {
   constructor(session) {
     this._pageProxySession = void 0;
     this._session = void 0;
     this._pageProxySession = session;
   }
+
   setSession(session) {
     this._session = session;
   }
+
   async keydown(modifiers, code, keyCode, keyCodeWithoutLocation, key, location, autoRepeat, text) {
     const parts = [];
+
     for (const modifier of ['Shift', 'Control', 'Alt', 'Meta']) {
       if (modifiers.has(modifier)) parts.push(modifier);
     }
+
     parts.push(code);
     const shortcut = parts.join('+');
     let commands = _macEditingCommands.macEditingCommands[shortcut];
@@ -73,6 +84,7 @@ class RawKeyboardImpl {
       isKeypad: location === input.keypadLocation
     });
   }
+
   async keyup(modifiers, code, keyCode, keyCodeWithoutLocation, key, location) {
     await this._pageProxySession.send('Input.dispatchKeyEvent', {
       type: 'keyUp',
@@ -83,13 +95,17 @@ class RawKeyboardImpl {
       isKeypad: location === input.keypadLocation
     });
   }
+
   async sendText(text) {
     await this._session.send('Page.insertText', {
       text
     });
   }
+
 }
+
 exports.RawKeyboardImpl = RawKeyboardImpl;
+
 class RawMouseImpl {
   constructor(session) {
     this._pageProxySession = void 0;
@@ -97,9 +113,11 @@ class RawMouseImpl {
     this._page = void 0;
     this._pageProxySession = session;
   }
+
   setSession(session) {
     this._session = session;
   }
+
   async move(x, y, button, buttons, modifiers, forClick) {
     await this._pageProxySession.send('Input.dispatchMouseEvent', {
       type: 'move',
@@ -110,6 +128,7 @@ class RawMouseImpl {
       modifiers: toModifiersMask(modifiers)
     });
   }
+
   async down(x, y, button, buttons, modifiers, clickCount) {
     await this._pageProxySession.send('Input.dispatchMouseEvent', {
       type: 'down',
@@ -121,6 +140,7 @@ class RawMouseImpl {
       clickCount
     });
   }
+
   async up(x, y, button, buttons, modifiers, clickCount) {
     await this._pageProxySession.send('Input.dispatchMouseEvent', {
       type: 'up',
@@ -132,11 +152,13 @@ class RawMouseImpl {
       clickCount
     });
   }
+
   async wheel(x, y, buttons, modifiers, deltaX, deltaY) {
     var _this$_page;
+
     if ((_this$_page = this._page) !== null && _this$_page !== void 0 && _this$_page._browserContext._options.isMobile) throw new Error('Mouse wheel is not supported in mobile WebKit');
-    await this._session.send('Page.updateScrollingState');
-    // Wheel events hit the compositor first, so wait one frame for it to be synced.
+    await this._session.send('Page.updateScrollingState'); // Wheel events hit the compositor first, so wait one frame for it to be synced.
+
     await this._page.mainFrame().evaluateExpression(`new Promise(requestAnimationFrame)`, false, false, 'utility');
     await this._pageProxySession.send('Input.dispatchWheelEvent', {
       x,
@@ -146,16 +168,21 @@ class RawMouseImpl {
       modifiers: toModifiersMask(modifiers)
     });
   }
+
   setPage(page) {
     this._page = page;
   }
+
 }
+
 exports.RawMouseImpl = RawMouseImpl;
+
 class RawTouchscreenImpl {
   constructor(session) {
     this._pageProxySession = void 0;
     this._pageProxySession = session;
   }
+
   async tap(x, y, modifiers) {
     await this._pageProxySession.send('Input.dispatchTapEvent', {
       x,
@@ -163,5 +190,7 @@ class RawTouchscreenImpl {
       modifiers: toModifiersMask(modifiers)
     });
   }
+
 }
+
 exports.RawTouchscreenImpl = RawTouchscreenImpl;

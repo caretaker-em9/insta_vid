@@ -64,13 +64,13 @@ class Playwright(ChannelOwner):
             return self.webkit
         raise ValueError("Invalid browser " + value)
 
-    def _set_selectors(self, selectors: Selectors) -> None:
+    def _set_selectors(self, selectors: SelectorsOwner) -> None:
         selectors_owner = from_channel(self._initializer["selectors"])
         self.selectors._remove_channel(selectors_owner)
         self.selectors = selectors
         self.selectors._add_channel(selectors_owner)
 
-    async def stop(self) -> None:
+    def stop(self) -> None:
         pass
 
 
@@ -81,5 +81,4 @@ def parse_device_descriptor(dict: Dict) -> Dict:
         "device_scale_factor": dict["deviceScaleFactor"],
         "is_mobile": dict["isMobile"],
         "has_touch": dict["hasTouch"],
-        "default_browser_type": dict["defaultBrowserType"],
     }

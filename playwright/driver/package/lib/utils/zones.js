@@ -3,8 +3,10 @@
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.runWithFinally = runWithFinally;
 exports.zones = void 0;
+
+var _stackTrace = require("./stackTrace");
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -20,68 +22,65 @@ exports.zones = void 0;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class ZoneManager {
   constructor() {
     this.lastZoneId = 0;
     this._zones = new Map();
   }
-  run(type, data, func) {
-    return new Zone(this, ++this.lastZoneId, type, data).run(func);
+
+  async run(type, data, func) {
+    const zone = new Zone(this, ++this.lastZoneId, type, data);
+
+    this._zones.set(zone.id, zone);
+
+    return zone.run(func);
   }
+
   zoneData(type, rawStack) {
-    for (const line of rawStack) {
+    const stack = rawStack || (0, _stackTrace.captureRawStack)();
+
+    for (const line of stack.split('\n')) {
       const index = line.indexOf('__PWZONE__[');
+
       if (index !== -1) {
         const zoneId = +line.substring(index + '__PWZONE__['.length, line.indexOf(']', index));
+
         const zone = this._zones.get(zoneId);
+
         if (zone && zone.type === type) return zone.data;
       }
     }
+
     return null;
   }
+
 }
+
 class Zone {
   constructor(manager, id, type, data) {
     this._manager = void 0;
     this.id = void 0;
     this.type = void 0;
-    this.data = void 0;
-    this.wallTime = void 0;
+    this.data = {};
     this._manager = manager;
     this.id = id;
     this.type = type;
     this.data = data;
-    this.wallTime = Date.now();
   }
-  run(func) {
-    this._manager._zones.set(this.id, this);
+
+  async run(func) {
     Object.defineProperty(func, 'name', {
       value: `__PWZONE__[${this.id}]`
     });
-    return runWithFinally(() => func(this.data), () => {
+
+    try {
+      return await func();
+    } finally {
       this._manager._zones.delete(this.id);
-    });
-  }
-}
-function runWithFinally(func, finallyFunc) {
-  try {
-    const result = func();
-    if (result instanceof Promise) {
-      return result.then(r => {
-        finallyFunc();
-        return r;
-      }).catch(e => {
-        finallyFunc();
-        throw e;
-      });
     }
-    finallyFunc();
-    return result;
-  } catch (e) {
-    finallyFunc();
-    throw e;
   }
+
 }
+
 const zones = new ZoneManager();
 exports.zones = zones;

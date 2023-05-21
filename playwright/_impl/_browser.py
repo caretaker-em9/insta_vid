@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class Browser(ChannelOwner):
+
     Events = SimpleNamespace(
         Disconnected="disconnected",
     )
@@ -116,16 +117,19 @@ class Browser(ChannelOwner):
         baseURL: str = None,
         strictSelectors: bool = None,
         serviceWorkers: ServiceWorkersPolicy = None,
-        recordHarUrlFilter: Union[Pattern[str], str] = None,
+        recordHarUrlFilter: Union[Pattern, str] = None,
         recordHarMode: HarMode = None,
         recordHarContent: HarContentPolicy = None,
     ) -> BrowserContext:
         params = locals_to_params(locals())
-        await prepare_browser_context_params(params)
+        await normalize_context_params(self._connection._is_sync, params)
 
         channel = await self._channel.send("newContext", params)
         context = cast(BrowserContext, from_channel(channel))
-        self._browser_type._did_create_context(context, params, {})
+        self._contexts.append(context)
+        context._browser = self
+        context._options = params
+        context._set_browser_type(self._browser_type)
         return context
 
     async def new_page(
@@ -161,7 +165,7 @@ class Browser(ChannelOwner):
         baseURL: str = None,
         strictSelectors: bool = None,
         serviceWorkers: ServiceWorkersPolicy = None,
-        recordHarUrlFilter: Union[Pattern[str], str] = None,
+        recordHarUrlFilter: Union[Pattern, str] = None,
         recordHarMode: HarMode = None,
         recordHarContent: HarContentPolicy = None,
     ) -> Page:
@@ -171,6 +175,11 @@ class Browser(ChannelOwner):
         page._owned_context = context
         context._owner_page = page
         return page
+
+    def _set_browser_type(self, browser_type: "BrowserType") -> None:
+        self._browser_type = browser_type
+        for context in self._contexts:
+            context._set_browser_type(browser_type)
 
     async def close(self) -> None:
         if self._is_closed_or_closing:
@@ -210,7 +219,7 @@ class Browser(ChannelOwner):
         return base64.b64decode(encoded_binary)
 
 
-async def prepare_browser_context_params(params: Dict) -> None:
+async def normalize_context_params(is_sync: bool, params: Dict) -> None:
     if params.get("noViewport"):
         del params["noViewport"]
         params["noDefaultViewport"] = True
@@ -233,9 +242,3 @@ async def prepare_browser_context_params(params: Dict) -> None:
             params["storageState"] = json.loads(
                 (await async_readfile(storageState)).decode()
             )
-    if params.get("colorScheme", None) == "null":
-        params["colorScheme"] = "no-override"
-    if params.get("reducedMotion", None) == "null":
-        params["reducedMotion"] = "no-override"
-    if params.get("forcedColors", None) == "null":
-        params["forcedColors"] = "no-override"

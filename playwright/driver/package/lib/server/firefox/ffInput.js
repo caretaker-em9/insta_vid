@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.RawTouchscreenImpl = exports.RawMouseImpl = exports.RawKeyboardImpl = void 0;
+
 /**
  * Copyright 2017 Google Inc. All rights reserved.
  * Modifications copyright (c) Microsoft Corporation.
@@ -20,7 +21,6 @@ exports.RawTouchscreenImpl = exports.RawMouseImpl = exports.RawKeyboardImpl = vo
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 function toModifiersMask(modifiers) {
   let mask = 0;
   if (modifiers.has('Alt')) mask |= 1;
@@ -29,12 +29,14 @@ function toModifiersMask(modifiers) {
   if (modifiers.has('Meta')) mask |= 8;
   return mask;
 }
+
 function toButtonNumber(button) {
   if (button === 'left') return 0;
   if (button === 'middle') return 1;
   if (button === 'right') return 2;
   return 0;
 }
+
 function toButtonsMask(buttons) {
   let mask = 0;
   if (buttons.has('left')) mask |= 1;
@@ -42,15 +44,17 @@ function toButtonsMask(buttons) {
   if (buttons.has('middle')) mask |= 4;
   return mask;
 }
+
 class RawKeyboardImpl {
   constructor(client) {
     this._client = void 0;
     this._client = client;
   }
+
   async keydown(modifiers, code, keyCode, keyCodeWithoutLocation, key, location, autoRepeat, text) {
     if (code === 'MetaLeft') code = 'OSLeft';
-    if (code === 'MetaRight') code = 'OSRight';
-    // Firefox will figure out Enter by itself
+    if (code === 'MetaRight') code = 'OSRight'; // Firefox will figure out Enter by itself
+
     if (text === '\r') text = '';
     await this._client.send('Page.dispatchKeyEvent', {
       type: 'keydown',
@@ -62,6 +66,7 @@ class RawKeyboardImpl {
       text
     });
   }
+
   async keyup(modifiers, code, keyCode, keyCodeWithoutLocation, key, location) {
     if (code === 'MetaLeft') code = 'OSLeft';
     if (code === 'MetaRight') code = 'OSRight';
@@ -74,19 +79,24 @@ class RawKeyboardImpl {
       repeat: false
     });
   }
+
   async sendText(text) {
     await this._client.send('Page.insertText', {
       text
     });
   }
+
 }
+
 exports.RawKeyboardImpl = RawKeyboardImpl;
+
 class RawMouseImpl {
   constructor(client) {
     this._client = void 0;
     this._page = void 0;
     this._client = client;
   }
+
   async move(x, y, button, buttons, modifiers, forClick) {
     await this._client.send('Page.dispatchMouseEvent', {
       type: 'mousemove',
@@ -97,6 +107,7 @@ class RawMouseImpl {
       modifiers: toModifiersMask(modifiers)
     });
   }
+
   async down(x, y, button, buttons, modifiers, clickCount) {
     await this._client.send('Page.dispatchMouseEvent', {
       type: 'mousedown',
@@ -108,6 +119,7 @@ class RawMouseImpl {
       clickCount
     });
   }
+
   async up(x, y, button, buttons, modifiers, clickCount) {
     await this._client.send('Page.dispatchMouseEvent', {
       type: 'mouseup',
@@ -119,6 +131,7 @@ class RawMouseImpl {
       clickCount
     });
   }
+
   async wheel(x, y, buttons, modifiers, deltaX, deltaY) {
     // Wheel events hit the compositor first, so wait one frame for it to be synced.
     await this._page.mainFrame().evaluateExpression(`new Promise(requestAnimationFrame)`, false, false, 'utility');
@@ -131,16 +144,21 @@ class RawMouseImpl {
       modifiers: toModifiersMask(modifiers)
     });
   }
+
   setPage(page) {
     this._page = page;
   }
+
 }
+
 exports.RawMouseImpl = RawMouseImpl;
+
 class RawTouchscreenImpl {
   constructor(client) {
     this._client = void 0;
     this._client = client;
   }
+
   async tap(x, y, modifiers) {
     await this._client.send('Page.dispatchTapEvent', {
       x,
@@ -148,5 +166,7 @@ class RawTouchscreenImpl {
       modifiers: toModifiersMask(modifiers)
     });
   }
+
 }
+
 exports.RawTouchscreenImpl = RawTouchscreenImpl;

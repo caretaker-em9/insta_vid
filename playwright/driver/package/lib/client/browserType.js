@@ -4,16 +4,25 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 exports.BrowserType = void 0;
+
 var _browser3 = require("./browser");
+
 var _browserContext = require("./browserContext");
+
 var _channelOwner = require("./channelOwner");
+
 var _connection = require("./connection");
+
 var _events = require("./events");
+
 var _clientHelper = require("./clientHelper");
+
 var _utils = require("../utils");
+
 var _errors = require("../common/errors");
+
 var _timeoutRunner = require("../utils/timeoutRunner");
-var _debugLogger = require("../common/debugLogger");
+
 /**
  * Copyright (c) Microsoft Corporation.
  *
@@ -29,152 +38,148 @@ var _debugLogger = require("../common/debugLogger");
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 class BrowserType extends _channelOwner.ChannelOwner {
   constructor(...args) {
     super(...args);
     this._serverLauncher = void 0;
     this._contexts = new Set();
     this._playwright = void 0;
-    // Instrumentation.
     this._defaultContextOptions = void 0;
     this._defaultLaunchOptions = void 0;
-    this._defaultConnectOptions = void 0;
     this._onDidCreateContext = void 0;
     this._onWillCloseContext = void 0;
   }
+
   static from(browserType) {
     return browserType._object;
   }
+
   executablePath() {
     if (!this._initializer.executablePath) throw new Error('Browser is not supported on current platform');
     return this._initializer.executablePath;
   }
+
   name() {
     return this._initializer.name;
   }
+
   async launch(options = {}) {
     var _this$_defaultLaunchO;
+
+    const logger = options.logger || ((_this$_defaultLaunchO = this._defaultLaunchOptions) === null || _this$_defaultLaunchO === void 0 ? void 0 : _this$_defaultLaunchO.logger);
     (0, _utils.assert)(!options.userDataDir, 'userDataDir option is not supported in `browserType.launch`. Use `browserType.launchPersistentContext` instead');
     (0, _utils.assert)(!options.port, 'Cannot specify a port without launching as a server.');
-    if (this._defaultConnectOptions) return await this._connectInsteadOfLaunching(this._defaultConnectOptions, options);
-    const logger = options.logger || ((_this$_defaultLaunchO = this._defaultLaunchOptions) === null || _this$_defaultLaunchO === void 0 ? void 0 : _this$_defaultLaunchO.logger);
-    options = {
-      ...this._defaultLaunchOptions,
+    options = { ...this._defaultLaunchOptions,
       ...options
     };
-    const launchOptions = {
-      ...options,
+    const launchOptions = { ...options,
       ignoreDefaultArgs: Array.isArray(options.ignoreDefaultArgs) ? options.ignoreDefaultArgs : undefined,
       ignoreAllDefaultArgs: !!options.ignoreDefaultArgs && !Array.isArray(options.ignoreDefaultArgs),
       env: options.env ? (0, _clientHelper.envObjectToArray)(options.env) : undefined
     };
-    return await this._wrapApiCall(async () => {
-      const browser = _browser3.Browser.from((await this._channel.launch(launchOptions)).browser);
-      this._didLaunchBrowser(browser, options, logger);
-      return browser;
-    });
-  }
-  async _connectInsteadOfLaunching(connectOptions, launchOptions) {
-    var _connectOptions$timeo;
-    return this._connect({
-      wsEndpoint: connectOptions.wsEndpoint,
-      headers: {
-        'x-playwright-launch-options': JSON.stringify({
-          ...this._defaultLaunchOptions,
-          ...launchOptions
-        }),
-        ...connectOptions.headers
-      },
-      _exposeNetwork: connectOptions._exposeNetwork,
-      slowMo: connectOptions.slowMo,
-      timeout: (_connectOptions$timeo = connectOptions.timeout) !== null && _connectOptions$timeo !== void 0 ? _connectOptions$timeo : 3 * 60 * 1000 // 3 minutes
-    });
+
+    const browser = _browser3.Browser.from((await this._channel.launch(launchOptions)).browser);
+
+    browser._logger = logger;
+
+    browser._setBrowserType(this);
+
+    return browser;
   }
 
   async launchServer(options = {}) {
     if (!this._serverLauncher) throw new Error('Launching server is not supported');
-    options = {
-      ...this._defaultLaunchOptions,
+    options = { ...this._defaultLaunchOptions,
       ...options
     };
     return this._serverLauncher.launchServer(options);
   }
+
   async launchPersistentContext(userDataDir, options = {}) {
-    var _this$_defaultLaunchO2;
+    var _this$_defaultLaunchO2, _this$_onDidCreateCon;
+
     const logger = options.logger || ((_this$_defaultLaunchO2 = this._defaultLaunchOptions) === null || _this$_defaultLaunchO2 === void 0 ? void 0 : _this$_defaultLaunchO2.logger);
     (0, _utils.assert)(!options.port, 'Cannot specify a port without launching as a server.');
-    options = {
-      ...this._defaultLaunchOptions,
+    options = { ...this._defaultLaunchOptions,
       ...this._defaultContextOptions,
       ...options
     };
     const contextParams = await (0, _browserContext.prepareBrowserContextParams)(options);
-    const persistentParams = {
-      ...contextParams,
+    const persistentParams = { ...contextParams,
       ignoreDefaultArgs: Array.isArray(options.ignoreDefaultArgs) ? options.ignoreDefaultArgs : undefined,
       ignoreAllDefaultArgs: !!options.ignoreDefaultArgs && !Array.isArray(options.ignoreDefaultArgs),
       env: options.env ? (0, _clientHelper.envObjectToArray)(options.env) : undefined,
       channel: options.channel,
       userDataDir
     };
-    return await this._wrapApiCall(async () => {
-      const result = await this._channel.launchPersistentContext(persistentParams);
-      const context = _browserContext.BrowserContext.from(result.context);
-      await this._didCreateContext(context, contextParams, options, logger);
-      return context;
-    });
+    const result = await this._channel.launchPersistentContext(persistentParams);
+
+    const context = _browserContext.BrowserContext.from(result.context);
+
+    context._options = contextParams;
+    context._logger = logger;
+
+    context._setBrowserType(this);
+
+    await ((_this$_onDidCreateCon = this._onDidCreateContext) === null || _this$_onDidCreateCon === void 0 ? void 0 : _this$_onDidCreateCon.call(this, context));
+    return context;
   }
+
   async connect(optionsOrWsEndpoint, options) {
-    if (typeof optionsOrWsEndpoint === 'string') return this._connect({
-      ...options,
-      wsEndpoint: optionsOrWsEndpoint
-    });
+    if (typeof optionsOrWsEndpoint === 'string') return this._connect(optionsOrWsEndpoint, options);
     (0, _utils.assert)(optionsOrWsEndpoint.wsEndpoint, 'options.wsEndpoint is required');
-    return this._connect(optionsOrWsEndpoint);
+    return this._connect(optionsOrWsEndpoint.wsEndpoint, optionsOrWsEndpoint);
   }
-  async _connect(params) {
+
+  async _connect(wsEndpoint, params = {}) {
     const logger = params.logger;
     return await this._wrapApiCall(async () => {
       const deadline = params.timeout ? (0, _utils.monotonicTime)() + params.timeout : 0;
+      let browser;
       const headers = {
         'x-playwright-browser': this.name(),
         ...params.headers
       };
-      const localUtils = this._connection.localUtils();
       const connectParams = {
-        wsEndpoint: params.wsEndpoint,
+        wsEndpoint,
         headers,
-        exposeNetwork: params._exposeNetwork,
         slowMo: params.slowMo,
         timeout: params.timeout
       };
       if (params.__testHookRedirectPortForwarding) connectParams.socksProxyRedirectPortForTest = params.__testHookRedirectPortForwarding;
       const {
-        pipe,
-        headers: connectHeaders
-      } = await localUtils._channel.connect(connectParams);
+        pipe
+      } = await this._channel.connect(connectParams);
+
       const closePipe = () => pipe.close().catch(() => {});
-      const connection = new _connection.Connection(localUtils);
+
+      const connection = new _connection.Connection(this._connection.localUtils());
       connection.markAsRemote();
       connection.on('close', closePipe);
-      let browser;
       let closeError;
+
       const onPipeClosed = () => {
         var _browser2;
+
         // Emulate all pages, contexts and the browser closing upon disconnect.
         for (const context of ((_browser = browser) === null || _browser === void 0 ? void 0 : _browser.contexts()) || []) {
           var _browser;
+
           for (const page of context.pages()) page._onClose();
+
           context._onClose();
         }
+
         (_browser2 = browser) === null || _browser2 === void 0 ? void 0 : _browser2._didClose();
         connection.close(closeError || _errors.kBrowserClosedError);
       };
+
       pipe.on('closed', onPipeClosed);
+
       connection.onmessage = message => pipe.send({
         message
       }).catch(onPipeClosed);
+
       pipe.on('message', ({
         message
       }) => {
@@ -189,21 +194,24 @@ class BrowserType extends _channelOwner.ChannelOwner {
         // For tests.
         if (params.__testHookBeforeCreateBrowser) await params.__testHookBeforeCreateBrowser();
         const playwright = await connection.initializePlaywright();
+
         if (!playwright._initializer.preLaunchedBrowser) {
           closePipe();
-          throw new Error('Malformed endpoint. Did you use BrowserType.launchServer method?');
+          throw new Error('Malformed endpoint. Did you use launchServer method?');
         }
+
         playwright._setSelectors(this._playwright.selectors);
+
         browser = _browser3.Browser.from(playwright._initializer.preLaunchedBrowser);
-        this._didLaunchBrowser(browser, {}, logger);
+        browser._logger = logger;
         browser._shouldCloseConnectionOnClose = true;
-        browser._connectHeaders = connectHeaders;
-        for (const header of connectHeaders) {
-          if (header.name === 'x-playwright-debug-log') _debugLogger.debugLogger.log('browser', header.value);
-        }
+
+        browser._setBrowserType(this);
+
         browser.on(_events.Events.Browser.Disconnected, closePipe);
         return browser;
       }, deadline ? deadline - (0, _utils.monotonicTime)() : 0);
+
       if (!result.timedOut) {
         return result.result;
       } else {
@@ -212,12 +220,14 @@ class BrowserType extends _channelOwner.ChannelOwner {
       }
     });
   }
+
   connectOverCDP(endpointURLOrOptions, options) {
     if (typeof endpointURLOrOptions === 'string') return this._connectOverCDP(endpointURLOrOptions, options);
     const endpointURL = 'endpointURL' in endpointURLOrOptions ? endpointURLOrOptions.endpointURL : endpointURLOrOptions.wsEndpoint;
     (0, _utils.assert)(endpointURL, 'Cannot connect over CDP without wsEndpoint.');
     return this.connectOverCDP(endpointURL, endpointURLOrOptions);
   }
+
   async _connectOverCDP(endpointURL, params = {}) {
     if (this.name() !== 'chromium') throw new Error('Connecting over CDP is only supported in Chromium.');
     const headers = params.headers ? (0, _utils.headersObjectToArray)(params.headers) : undefined;
@@ -227,28 +237,17 @@ class BrowserType extends _channelOwner.ChannelOwner {
       slowMo: params.slowMo,
       timeout: params.timeout
     });
+
     const browser = _browser3.Browser.from(result.browser);
-    this._didLaunchBrowser(browser, {}, params.logger);
-    if (result.defaultContext) await this._didCreateContext(_browserContext.BrowserContext.from(result.defaultContext), {}, {}, undefined);
+
+    if (result.defaultContext) browser._contexts.add(_browserContext.BrowserContext.from(result.defaultContext));
+    browser._logger = params.logger;
+
+    browser._setBrowserType(this);
+
     return browser;
   }
-  _didLaunchBrowser(browser, browserOptions, logger) {
-    browser._browserType = this;
-    browser._options = browserOptions;
-    browser._logger = logger;
-  }
-  async _didCreateContext(context, contextOptions, browserOptions, logger) {
-    var _this$_onDidCreateCon;
-    context._logger = logger;
-    context._browserType = this;
-    this._contexts.add(context);
-    context._setOptions(contextOptions, browserOptions);
-    await ((_this$_onDidCreateCon = this._onDidCreateContext) === null || _this$_onDidCreateCon === void 0 ? void 0 : _this$_onDidCreateCon.call(this, context));
-  }
-  async _willCloseContext(context) {
-    var _this$_onWillCloseCon;
-    this._contexts.delete(context);
-    await ((_this$_onWillCloseCon = this._onWillCloseContext) === null || _this$_onWillCloseCon === void 0 ? void 0 : _this$_onWillCloseCon.call(this, context));
-  }
+
 }
+
 exports.BrowserType = BrowserType;

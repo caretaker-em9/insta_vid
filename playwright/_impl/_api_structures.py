@@ -64,10 +64,9 @@ class Geolocation(TypedDict, total=False):
     accuracy: Optional[float]
 
 
-class HttpCredentials(TypedDict, total=False):
+class HttpCredentials(TypedDict):
     username: str
     password: str
-    origin: Optional[str]
 
 
 class LocalStorageEntry(TypedDict):
@@ -186,7 +185,7 @@ class ExpectedTextValue(TypedDict, total=False):
 class FrameExpectOptions(TypedDict, total=False):
     expressionArg: Any
     expectedText: Optional[List[ExpectedTextValue]]
-    expectedNumber: Optional[float]
+    expectedNumber: Optional[int]
     expectedValue: Optional[Any]
     useInnerText: Optional[bool]
     isNot: bool
@@ -197,89 +196,3 @@ class FrameExpectResult(TypedDict):
     matches: bool
     received: Any
     log: List[str]
-
-
-AriaRole = Literal[
-    "alert",
-    "alertdialog",
-    "application",
-    "article",
-    "banner",
-    "blockquote",
-    "button",
-    "caption",
-    "cell",
-    "checkbox",
-    "code",
-    "columnheader",
-    "combobox",
-    "complementary",
-    "contentinfo",
-    "definition",
-    "deletion",
-    "dialog",
-    "directory",
-    "document",
-    "emphasis",
-    "feed",
-    "figure",
-    "form",
-    "generic",
-    "grid",
-    "gridcell",
-    "group",
-    "heading",
-    "img",
-    "insertion",
-    "link",
-    "list",
-    "listbox",
-    "listitem",
-    "log",
-    "main",
-    "marquee",
-    "math",
-    "menu",
-    "menubar",
-    "menuitem",
-    "menuitemcheckbox",
-    "menuitemradio",
-    "meter",
-    "navigation",
-    "none",
-    "note",
-    "option",
-    "paragraph",
-    "presentation",
-    "progressbar",
-    "radio",
-    "radiogroup",
-    "region",
-    "row",
-    "rowgroup",
-    "rowheader",
-    "scrollbar",
-    "search",
-    "searchbox",
-    "separator",
-    "slider",
-    "spinbutton",
-    "status",
-    "strong",
-    "subscript",
-    "superscript",
-    "switch",
-    "tab",
-    "table",
-    "tablist",
-    "tabpanel",
-    "term",
-    "textbox",
-    "time",
-    "timer",
-    "toolbar",
-    "tooltip",
-    "tree",
-    "treegrid",
-    "treeitem",
-]
