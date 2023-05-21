@@ -12,21 +12,19 @@ bot = telebot.TeleBot(bot_token)
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    global chat_id
-    chat_id=message.chat.id
-    global msg
-    msg=message.text
-    if "https://www.instagram.com" in msg:
-    	bot.send_message(chat_id,"pasring link...")
-	spl_url=msg.split('?')
-	_url=spl_url[0]
-	vid=get_source(_url)
-	_link=get_link(vid)
-	bot.send_message(chat_id,f"source link:\n {_link}")
-	caption=get_caption(vid)
-	bot.send_message(chat_id,caption)
-    elif "https://www.instagram.com" not in msg:
-    	bot.send_message(chat_id,"send a valid link")
+	chat_id=message.chat.id
+	msg=message.text
+	if "https://www.instagram.com" in msg:
+		bot.send_message(chat_id,"pasring link...")
+		spl_url=msg.split('?')
+		_url=spl_url[0]
+		vid=get_source(_url)
+		_link=get_link(vid)
+		bot.send_message(chat_id,f"source link:\n {_link}")
+		caption=get_caption(vid)
+		bot.send_message(chat_id,caption)
+	elif "https://www.instagram.com" not in msg:
+		bot.send_message(chat_id,"send a valid link")
     
     
 
