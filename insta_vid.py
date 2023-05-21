@@ -29,7 +29,7 @@ def get_link(vid):
 		_filter=_filter.replace('amp;','')
 		_filter=_filter.replace('\\n','')
 		link=_filter.replace('">\',','')
-	return link
+		return link
 
 def gen_caption():
 	_cats=['Cute cats','Lovely cats','Fluffy cats','Playful cats','Mischievous cats','Cuddly cats','Lazy cats','Elegant cats','Regal cats','Mysterious cats','Enchanting cats','Graceful cats','Majestic cats','Curious cats','Gentle cats','Grumpy cats']
