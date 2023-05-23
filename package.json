@@ -1,0 +1,8 @@
+{
+    "name": "insta_vid",
+    "version": "1.0.0",
+    "description": "",
+    "scripts": {
+       "build": "pip install -r requirements.txt" && exit 1",
+        "start": "python3 -m install playwright && python3 insta_vid.py"
+    }
