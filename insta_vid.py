@@ -6,7 +6,7 @@ import random
 import os
 import telebot
 
-bot_token = '6172233153:AAE2yZFTGz_TOiR-c9RQ9yfbQoMIRqbJ5-Y'
+bot_token = '6072074644:AAE26JTjF3gU491iYIonQTagNUTx4w8C5mc'
 
 bot = telebot.TeleBot(bot_token)
 
