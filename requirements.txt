@@ -1,4 +1,4 @@
-pyTelegramBotAPI==3.7.9
+pyTelegramBotAPI
 beautifulsoup4==4.12.1
 greenlet==1.1.2
 websockets==10.1
